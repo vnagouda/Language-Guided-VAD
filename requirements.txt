@@ -1,0 +1,13 @@
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+transformers>=4.30.0    # HuggingFace - essential for CLIP and BLIP-2
+accelerate              # Helps load large models like BLIP-2 efficiently
+opencv-python           # For reading video frames (cv2)
+numpy
+pandas
+scikit-learn            # For calculating the AUROC metric
+matplotlib              # For plotting the anomaly score curves (required by spec)
+seaborn
+tqdm                    # For progress bars
+pyyaml                  # For reading your config.yaml file
