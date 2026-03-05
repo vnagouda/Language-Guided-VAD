@@ -1,77 +1,128 @@
 # Language-Guided Weakly Supervised Video Anomaly Detection
 
-This repository contains the code for an MSc Thesis project in Applied Machine Learning. The project proposes a novel framework for Video Anomaly Detection (VAD) under weak supervision (video-level labels only). 
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.6.0%2Bcu124-EE4C2C.svg)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Unlike traditional methods that rely exclusively on visual features (RGB/Optical Flow), this project leverages Vision-Language Models (VLMs) to generate semantic descriptions of video segments. These textual embeddings are then used to drive a **Cross-Attention** mechanism, explicitly guiding the visual network to focus on anomalous regions, thereby reducing context bias and false alarms.
+> **MSc Thesis Project** - Applied Machine Learning, University of Surrey  
+> **Author:** Viresh Nagouda
 
-## 📁 Repository Structure
+## 📖 Overview
+Weakly Supervised Video Anomaly Detection (WS-VAD) aims to detect anomalous events in untrimmed surveillance videos using only video-level labels (normal/anomaly) during training. Current state-of-the-art methods rely solely on visual features, which often leads to **context bias** — confusing visually similar normal and abnormal scenes.
+
+This project introduces a **Language-Guided Cross-Attention** framework. By leveraging vision-language models (BLIP-2 and CLIP), we explicitly guide the visual representation toward anomaly-relevant cues using semantic language descriptions.
+
+## ✨ Key Features
+- **Language Guidance:** Uses BLIP-2 captions and CLIP text embeddings to explicitly guide visual attention.
+- **Cross-Attention Mechanism:** Text features act as Queries, while visual features act as Keys/Values, forcing the model to attend to semantically relevant visual cues.
+- **Top-K MIL Ranking Loss:** Incorporates robust multiple-instance learning with temporal smoothness and sparsity regularizations.
+- **Highly Modular:** Clean, deeply documented, configuration-driven PyTorch codebase.
+- **Pre-extraction Pipeline:** Offline extraction of heavy visual and text features to `[32, 512]` point tensors, preventing GPU memory bottlenecks during MIL training.
+
+---
+
+## 🏗️ Architecture
+
+### 1. Offline Feature Extraction
+- **Visual:** UCF-Crime PNG frames $\rightarrow$ CLIP ViT-B/16 $\rightarrow$ Visual Features $\in \mathbb{R}^{32 \times 512}$
+- **Text:** PNG frames $\rightarrow$ BLIP-2 Captioner $\rightarrow$ CLIP Text Encoder $\rightarrow$ Text Features $\in \mathbb{R}^{32 \times 512}$
+
+### 2. Language-Guided VAD Model
+$$
+\begin{aligned}
+Q &= T \cdot W_Q \quad \text{(Text Query)} \\
+K &= V \cdot W_K \quad \text{(Visual Key)} \\
+V &= V \cdot W_V \quad \text{(Visual Value)} \\
+\text{Attention}(Q, K, V) &= \text{softmax}\left(\frac{Q K^T}{\sqrt{d_k}}\right) V
+\end{aligned}
+$$
+The cross-attended features are then passed through an MLP to generate per-segment anomaly scores $\in [0, 1]$.
+
+---
+
+## ⚙️ Installation
+
+### Prerequisites
+- Python 3.12+
+- NVIDIA GPU (Tested on RTX 4060 with 8GB+ VRAM)
+- CUDA 12.4 compatible driver
+
+### Setup Environment
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/Language-Guided-VAD.git
+cd Language-Guided-VAD
+
+# 2. Create and activate a virtual environment
+python -m venv venv
+.\venv\Scripts\activate  # Windows
+
+# 3. Install PyTorch with CUDA 12.4
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# 4. Install remaining dependencies
+pip install -r requirements.txt
+```
+
+---
+
+## 🚀 Usage
+
+### 1. Configuration
+All hyperparameters (paths, model dims, learning rates) are centralized in `configs/config.yaml`. Modify this file before running any scripts.
+
+### 2. Feature Extraction
+Extract visual and text features offline to avoid memory bottlenecks during training. Supports resuming from interruptions.
+```bash
+python scripts/01_extract_features.py --split Train
+python scripts/01_extract_features.py --split Test
+```
+
+### 3. Training
+Train the Cross-Attention MIL model using the pre-extracted `.pt` features.
+```bash
+python scripts/02_train.py --config configs/config.yaml
+```
+
+### 4. Evaluation
+Evaluate the model on the test set and calculate the frame-level AUROC.
+*(Note: Requires the `Temporal_Anomaly_Annotation.txt` file in `data/`)*
+```bash
+python scripts/03_evaluate.py --checkpoint checkpoints/best_model.pth
+```
+
+---
+
+## 📂 Project Structure
 
 ```text
-├── data/                    # Data directory (ignored by git)
-│   ├── raw/                 # Raw .mp4 video files
-│   ├── splits/              # Train/Test split lists
-│   └── features/            # Pre-extracted visual and textual .pt tensors
-├── models/                  # PyTorch model definitions
-│   ├── cross_attention.py   # Core language-guided fusion module
-│   └── vad_model.py         # The complete VAD architecture
-├── utils/                   # Helper functions
-│   ├── video_utils.py       # Video processing and segmentation
-│   └── metrics.py           # AUROC evaluation scripts
-├── configs/                 # YAML configuration files
-│   └── config.yaml          # Hyperparameters
-├── scripts/                 # Execution scripts
-│   ├── 01_extract_features.py
-│   ├── 02_train.py
-│   └── 03_evaluate.py
-├── notebooks/               # Jupyter notebooks for EDA and visualization
-├── AGENT_INSTRUCTIONS.md    # Instructions for AI IDE assistants
-├── PRD.md                   # Product Requirements Document & Architecture Specs
-└── requirements.txt         # Python dependencies
+Language-Guided-VAD/
+├── configs/
+│   └── config.yaml              # Centralized hyperparameters
+├── data/
+│   ├── raw/                     # UCF-Crime PNG frames
+│   └── features/                # Pre-extracted .pt feature tensors
+├── models/
+│   ├── vad_architecture.py      # Cross-Attention + MLP classifier
+│   ├── visual_encoder.py        # CLIP ViT wrapper
+│   └── text_encoder.py          # BLIP-2 + CLIP text encoder
+├── scripts/
+│   ├── 01_extract_features.py   # Offline feature extraction pipeline
+│   ├── 02_train.py              # MIL training loop
+│   └── 03_evaluate.py           # Evaluation and AUROC computation
+├── utils/
+│   ├── dataset.py               # PyTorch Dataset for .pt features
+│   ├── losses.py                # Top-K MIL Ranking Loss
+│   ├── metrics.py               # AUROC and Score Interpolation
+│   └── video_utils.py           # T=32 sampling & directory parsing
+├── THESIS_LOG.md                # Comprehensive developmental log
+├── requirements.txt             # Pip dependencies
+└── README.md                    # Project documentation
+```
 
-🚀 Setup & Installation
-Clone the repository:
-code
-Bash
-git clone <your-repo-link>
-cd Viru_VAD_Thesis
-Create a virtual environment and install dependencies:
-code
-Bash
-conda create -n vad_env python=3.9 -y
-conda activate vad_env
-pip install -r requirements.txt
-Data Preparation:
-Download the UCF-Crime dataset and place the videos in data/raw/.
-Run the feature extraction pipeline (Requires GPU):
-code
-Bash
-python scripts/01_extract_features.py --config configs/config.yaml
-🧠 Training the Model
-Once features are extracted into .pt files, you can train the model using the weakly supervised Top-K MIL loss:
-code
-Bash
-python scripts/02_train.py --config configs/config.yaml
-📊 Evaluation
-To evaluate the model on the test set and calculate the frame-level AUROC:
-code
-Bash
-python scripts/03_evaluate.py --weights path/to/saved/model.pth
-📚 Core References
-Sultani et al. (2019): Real-world anomaly detection in surveillance videos. (Foundational MIL baseline)
-Tian et al. (2021): Weakly-supervised video anomaly detection with robust temporal feature magnitude learning (RTFM).
-Zanella et al. (2024): Harnessing Large Language Models for Training-free Video Anomaly Detection (LAVAD).
-Sun et al. (2026): Enhancing Weakly Supervised Multimodal Video Anomaly Detection through Text Guidance (TGMVAD).
-code
-Code
-***
+---
 
-### Ready to Code
-
-Your environment is structured flawlessly. Your AI agent has its rules (`AGENT_INSTRUCTIONS.md`) and its scientific blueprint (`PRD.md`). Your repository has a professional face (`README.md`). 
-
-Now, let's get our hands dirty. Open your IDE. Navigate to `utils/video_utils.py`. 
-
-Ask your IDE agent this exact prompt:
-*"Based on the PRD, write a Python function in this file that takes a video path, uses `cv2` to get the total frame count, and returns a list of 32 lists, where each sub-list contains the frame indices for one of the 32 equal temporal segments. Include type hints and Google-style docstrings."*
-
-Paste the resulting code here so I can review it.
+## 📝 Acknowledgements
+- **UCF-Crime Dataset:** Sultani et al. "Real-world Anomaly Detection in Surveillance Videos" (CVPR 2018)
+- **CLIP:** Radford et al. "Learning Transferable Visual Models From Natural Language Supervision" (ICML 2021)
+- **BLIP-2:** Li et al. "Bootstrapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models" (ICML 2023)

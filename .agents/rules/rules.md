@@ -31,3 +31,21 @@ trigger: always_on
 - Before writing a complex function, briefly state your mathematical or logical plan.
 - If the user asks for an architecture change, consider the implications on Tensor shapes and warn the user if a dimensional mismatch is imminent.
 - Write clean, PEP8-compliant code. Focus on readability and academic rigor.
+
+## 6. Continuous Thesis Documentation Protocol (Research Scribe)
+You are acting as a Principal Investigator's Research Scribe. To prepare for the final IEEE-format MSc Thesis, you must maintain a running academic log of our progress.
+
+**Action Required:**
+Create and continuously update a file named `docs/THESIS_NOTES.md`. 
+Every time we complete a major module, resolve a significant architectural decision, or finish an experimental phase, you must append an entry to `docs/THESIS_NOTES.md` following this strict academic format:
+
+### [Date] - [Task/Module Name]
+*   **Target IEEE Section:** (e.g., Methodology III.B, Experimental Setup IV.A)
+*   **Objective:** Briefly state the engineering or scientific goal of this step.
+*   **Academic Justification:** WHY did we do this? (e.g., "Rather than using raw mp4 decoding, which is computationally bottlenecked, we extract static frames offline to ensure deterministic loading and prevent GPU memory overflow during MIL training.")
+*   **Mathematical/Architectural Formulation:** Write out the relevant math using LaTeX formatting. (e.g., Define the tensor shapes, the attention mechanism $\text{Softmax}(QK^T/ \sqrt{d})V$, or the MIL Top-K ranking loss).
+*   **Implementation Details:** Specifics that must go into a paper for reproducibility (e.g., "Utilized OpenCV to sample $T=32$ frames uniformly. Employed the AdamW optimizer with a learning rate of $1e-4$.").
+*   **Challenges & Resolutions:** What broke? How did we fix it? (e.g., "Encountered dimensional mismatch between textual and visual streams; resolved by ensuring the projection head maps both to $\mathbb{R}^{512}$.")
+
+**Tone & Style:** 
+Use formal, objective academic language suitable for a top-tier Computer Vision conference (e.g., CVPR/ICCV). Do not use conversational filler in this document.
