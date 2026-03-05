@@ -51,3 +51,15 @@ build/
 # Environment variables
 .env
 .env.local
+
+# Ignore data and features
+data/
+*.mp4
+*.pt
+*.pth
+*.avi
+
+# Ignore environment and cache
+venv/
+__pycache__/
+.DS_Store
