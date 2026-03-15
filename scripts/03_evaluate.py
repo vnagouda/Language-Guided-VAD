@@ -154,8 +154,10 @@ def compute_frame_level_auroc(
         for line in f:
             parts = line.strip().split()
             if len(parts) >= 5:
+                # The file might have: VideoName Class Start1 End1 Start2 End2
                 name = parts[0].replace(".mp4", "")
-                vals = [int(x) for x in parts[1:5]]
+                # The last 4 elements are always the start/end frames
+                vals = [int(x) for x in parts[-4:]]
                 annotations[name] = vals
 
     for video_name, scores in video_scores.items():

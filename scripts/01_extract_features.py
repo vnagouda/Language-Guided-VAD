@@ -139,9 +139,21 @@ def extract_features(config_path: str, resume: bool, split: str | None) -> None:
                     images=pil_images, return_tensors="pt", padding=True
                 )
                 pixel_values = vis_inputs["pixel_values"].to(device)
-                visual_features = clip_model.get_image_features(
+                visual_outputs = clip_model.get_image_features(
                     pixel_values=pixel_values
-                )  # (32, 512)
+                )
+                if isinstance(visual_outputs, torch.Tensor):
+                    visual_features = visual_outputs
+                elif hasattr(visual_outputs, "image_embeds") and visual_outputs.image_embeds is not None:
+                    visual_features = visual_outputs.image_embeds
+                elif hasattr(visual_outputs, "pooler_output") and visual_outputs.pooler_output is not None:
+                    visual_features = visual_outputs.pooler_output
+                else:
+                    visual_features = visual_outputs[0]
+                    
+                if visual_features.shape[-1] != 512 and hasattr(clip_model, "visual_projection"):
+                    visual_features = clip_model.visual_projection(visual_features)
+                
                 visual_features = visual_features.cpu()
 
             # --- Generate Captions & Extract Text Features ---
@@ -176,7 +188,19 @@ def extract_features(config_path: str, resume: bool, split: str | None) -> None:
                     max_length=77,
                     return_tensors="pt",
                 ).to(device)
-                text_features = clip_model.get_text_features(**text_inputs)  # (32, 512)
+                text_outputs = clip_model.get_text_features(**text_inputs)
+                if isinstance(text_outputs, torch.Tensor):
+                    text_features = text_outputs
+                elif hasattr(text_outputs, "text_embeds") and text_outputs.text_embeds is not None:
+                    text_features = text_outputs.text_embeds
+                elif hasattr(text_outputs, "pooler_output") and text_outputs.pooler_output is not None:
+                    text_features = text_outputs.pooler_output
+                else:
+                    text_features = text_outputs[0]
+                    
+                if text_features.shape[-1] != 512 and hasattr(clip_model, "text_projection"):
+                    text_features = clip_model.text_projection(text_features)
+                    
                 text_features = text_features.cpu()
 
             # --- Save tensors ---

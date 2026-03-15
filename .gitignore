@@ -24,20 +24,32 @@ desktop.ini
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# PyTorch model checkpoints & large binaries
-*.pt
-*.pth
-*.ckpt
-*.bin
-
-# Data files (raw videos, extracted features, etc.)
+# ---------------------------------------------------------------
+# DATA — too large for git (several GB)
+# ---------------------------------------------------------------
+# Raw UCF-Crime PNG frames (100s of GB)
 data/raw/
+
+# Pre-extracted .pt feature tensors (several GB)
 data/features/
+
+# Video files
 *.mp4
 *.avi
 *.mkv
 
-# Logs and outputs
+# PyTorch model weights / checkpoints  (large binary files)
+# NOTE: keep best_model.pth in checkpoints/ so professor can load the trained model
+# *.pth  <-- intentionally NOT ignored so checkpoints/ is pushed
+*.ckpt
+*.bin
+
+# ---------------------------------------------------------------
+# RESULTS — these SHOULD be pushed (small .npy files)
+# results/ is deliberately NOT ignored
+# ---------------------------------------------------------------
+
+# Logs and run tracking
 logs/
 runs/
 wandb/
@@ -48,18 +60,6 @@ dist/
 build/
 *.egg-info/
 
-# Environment variables
+# Environment variables (secrets)
 .env
 .env.local
-
-# Ignore data and features
-data/
-*.mp4
-*.pt
-*.pth
-*.avi
-
-# Ignore environment and cache
-venv/
-__pycache__/
-.DS_Store
