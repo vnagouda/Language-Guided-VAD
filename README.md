@@ -4,125 +4,204 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6.0%2Bcu124-EE4C2C.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> **MSc Thesis Project** - Applied Machine Learning, University of Surrey  
+> **MSc Thesis Project** — Applied Machine Learning, University of Surrey
 > **Author:** Viresh Nagouda
 
+---
+
 ## 📖 Overview
-Weakly Supervised Video Anomaly Detection (WS-VAD) aims to detect anomalous events in untrimmed surveillance videos using only video-level labels (normal/anomaly) during training. Current state-of-the-art methods rely solely on visual features, which often leads to **context bias** — confusing visually similar normal and abnormal scenes.
 
-This project introduces a **Language-Guided Cross-Attention** framework. By leveraging vision-language models (BLIP-2 and CLIP), we explicitly guide the visual representation toward anomaly-relevant cues using semantic language descriptions.
+Weakly Supervised Video Anomaly Detection (WS-VAD) aims to detect anomalous events in untrimmed surveillance videos using **only video-level labels** (normal / anomaly) during training, while producing frame-level anomaly scores at inference. Current state-of-the-art MIL-based methods rely exclusively on visual features, which leads to **context bias** — confusing visually similar normal and abnormal scenes (e.g. smoke from cooking vs. smoke from an explosion).
 
-## ✨ Key Features
-- **Language Guidance:** Uses BLIP-2 captions and CLIP text embeddings to explicitly guide visual attention.
-- **Cross-Attention Mechanism:** Text features act as Queries, while visual features act as Keys/Values, forcing the model to attend to semantically relevant visual cues.
-- **Top-K MIL Ranking Loss:** Incorporates robust multiple-instance learning with temporal smoothness and sparsity regularizations.
-- **Highly Modular:** Clean, deeply documented, configuration-driven PyTorch codebase.
-- **Pre-extraction Pipeline:** Offline extraction of heavy visual and text features to `[32, 512]` point tensors, preventing GPU memory bottlenecks during MIL training.
+This project introduces a novel **Language-Guided Cross-Attention** framework that fundamentally departs from pure visual MIL by exploiting semantic language descriptions to guide visual attention toward anomaly-relevant cues.
+
+### Novel Contribution
+Instead of simple feature concatenation, we use BLIP-2-generated captions encoded via CLIP's text encoder as **Queries** in a cross-attention mechanism, with visual features as **Keys/Values**:
+
+$$\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^T}{\sqrt{d_k}}\right)V, \quad Q = T \cdot W_Q,\quad K = V = F_{vis} \cdot W_{K/V}$$
+
+This forces the network to selectively attend to visual patterns that correlate with the semantic anomaly description — mathematically superior to concatenation.
+
+---
+
+## 🏆 Experimental Results
+
+Evaluated on the **UCF-Crime** dataset (1,610 training videos, 283 test videos, 13 anomaly categories + normal).
+
+| Metric | Score | Notes |
+|--------|-------|-------|
+| **Video-Level AUROC** | **94.85%** | Whether any anomaly exists in the video |
+| **Frame-Level AUROC** | **77.14%** | Exact temporal localization of anomaly frames |
+| Model Parameters | 2.17M | Core cross-attention + MLP only |
+| FLOPs (inference) | 138.68M | Extremely lightweight at inference time |
+| Training Time | ~20 min / 100 epochs | On RTX 4060 (8GB VRAM) |
+
+### Comparison Against Baselines
+
+| Method | Supervision | AUROC (Frame-Level) |
+|--------|-------------|----------------------|
+| Sultani et al. CVPR 2018 (C3D) | Weak | 75.41% |
+| RTFM (Tian et al., ICCV 2021) | Weak | 84.30% |
+| **Ours (Language-Guided Cross-Attn)** | **Weak** | **77.14%** |
+
+> Our model outperforms the seminal CVPR 2018 baseline and does so using a highly compact 2.17M-parameter architecture, compared to C3D-based approaches which typically exceed 30M parameters.
 
 ---
 
 ## 🏗️ Architecture
 
-### 1. Offline Feature Extraction
-- **Visual:** UCF-Crime PNG frames $\rightarrow$ CLIP ViT-B/16 $\rightarrow$ Visual Features $\in \mathbb{R}^{32 \times 512}$
-- **Text:** PNG frames $\rightarrow$ BLIP-2 Captioner $\rightarrow$ CLIP Text Encoder $\rightarrow$ Text Features $\in \mathbb{R}^{32 \times 512}$
+```
+Phase 1 — Offline Extraction (run once):
+  PNG Frames ──► CLIP ViT-B/16 ──► Visual Features [32, 512] ──► .pt file
+  PNG Frames ──► BLIP-2 OPT-2.7B ──► Captions ──► CLIP Text Encoder ──► Text Features [32, 512] ──► .pt file
 
-### 2. Language-Guided VAD Model
-$$
-\begin{aligned}
-Q &= T \cdot W_Q \quad \text{(Text Query)} \\
-K &= V \cdot W_K \quad \text{(Visual Key)} \\
-V &= V \cdot W_V \quad \text{(Visual Value)} \\
-\text{Attention}(Q, K, V) &= \text{softmax}\left(\frac{Q K^T}{\sqrt{d_k}}\right) V
-\end{aligned}
-$$
-The cross-attended features are then passed through an MLP to generate per-segment anomaly scores $\in [0, 1]$.
+Phase 2 — Online Training:
+  Visual [B, 32, 512] ──► Cross-Attention (Q=Text, K=V=Visual) ──► Guided Features [B, 32, 512]
+  Guided Features ──► MLP Head ──► Anomaly Scores [B, 32] ∈ [0,1]
+  Anomaly Scores ──► MIL Ranking Loss (Top-K=8) + Smoothness + Sparsity
+```
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Offline feature extraction** | Prevents GPU OOM during MIL training; enables fast dataloading |
+| **CLIP joint embedding space** | Both visual and text features live in the same 512-D space, making cross-attention mathematically meaningful |
+| **Query = Text, Key/Value = Visual** | Text asks "what should I look for?"; visual answers "where is it?" |
+| **Top-K MIL (K=8, T=32)** | Selects top 25% of segments to avoid training on border-frames |
+| **Sparsity + Smoothness regularisation** | Prevents model from predicting uniform high anomaly scores everywhere |
 
 ---
 
-## ⚙️ Installation
+## ⚙️ Setup
 
 ### Prerequisites
 - Python 3.12+
-- NVIDIA GPU (Tested on RTX 4060 with 8GB+ VRAM)
+- NVIDIA GPU with 8GB+ VRAM (tested on RTX 4060)
 - CUDA 12.4 compatible driver
 
-### Setup Environment
+### Installation
 ```bash
-# 1. Clone the repository
-git clone https://github.com/yourusername/Language-Guided-VAD.git
+git clone https://github.com/vnagouda/Language-Guided-VAD.git
 cd Language-Guided-VAD
 
-# 2. Create and activate a virtual environment
 python -m venv venv
-.\venv\Scripts\activate  # Windows
+.\venv\Scripts\activate          # Windows
+# source venv/bin/activate       # Linux/Mac
 
-# 3. Install PyTorch with CUDA 12.4
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-
-# 4. Install remaining dependencies
 pip install -r requirements.txt
+```
+
+### Dataset Setup
+Download the UCF-Crime dataset (PNG frame format) from Kaggle and place it at `data/raw/Train/` and `data/raw/Test/`. The expected structure is:
+
+```
+data/raw/Train/
+    Abuse/
+        Abuse001_x264_0.png
+        Abuse001_x264_10.png
+        ...
+    Arson/
+    ...
+    NormalVideos/
+data/raw/Test/
+    (same structure)
 ```
 
 ---
 
 ## 🚀 Usage
 
-### 1. Configuration
-All hyperparameters (paths, model dims, learning rates) are centralized in `configs/config.yaml`. Modify this file before running any scripts.
+All hyperparameters are centralised in `configs/config.yaml`. **Never hardcode values in scripts.**
 
-### 2. Feature Extraction
-Extract visual and text features offline to avoid memory bottlenecks during training. Supports resuming from interruptions.
+### Step 1 — Extract Features (run once, ~12 hours on RTX 4060)
 ```bash
 python scripts/01_extract_features.py --split Train
 python scripts/01_extract_features.py --split Test
+
+# Resume after interruption:
+python scripts/01_extract_features.py --split Train --resume
 ```
 
-### 3. Training
-Train the Cross-Attention MIL model using the pre-extracted `.pt` features.
+### Step 2 — Train the Model (~20 minutes, 100 epochs)
 ```bash
-python scripts/02_train.py --config configs/config.yaml
+python scripts/02_train.py
 ```
+Monitor the `Test AUROC` score printed at the end of each epoch. Best checkpoint is auto-saved to `checkpoints/best_model.pth`.
 
-### 4. Evaluation
-Evaluate the model on the test set and calculate the frame-level AUROC.
-*(Note: Requires the `Temporal_Anomaly_Annotation.txt` file in `data/`)*
+### Step 3 — Evaluate
 ```bash
-python scripts/03_evaluate.py --checkpoint checkpoints/best_model.pth
+python scripts/03_evaluate.py
+```
+Requires `data/Temporal_Anomaly_Annotation.txt` for frame-level AUROC. Download from the [UCF-Crime GitHub](https://github.com/WaqasSultani/AnomalyDetectionCVPR2018).
+
+### Step 4 — Compute FLOPs / Complexity
+```bash
+python scripts/compute_flops.py
 ```
 
 ---
 
 ## 📂 Project Structure
 
-```text
+```
 Language-Guided-VAD/
 ├── configs/
-│   └── config.yaml              # Centralized hyperparameters
+│   └── config.yaml                 # All hyperparameters (NO hardcoding in scripts)
 ├── data/
-│   ├── raw/                     # UCF-Crime PNG frames
-│   └── features/                # Pre-extracted .pt feature tensors
+│   ├── Temporal_Anomaly_Annotation.txt  # UCF-Crime frame-level GT (not in git)
+│   ├── raw/                        # UCF-Crime PNG frames   (not in git — too large)
+│   └── features/                   # Pre-extracted .pt tensors (not in git — too large)
 ├── models/
-│   ├── vad_architecture.py      # Cross-Attention + MLP classifier
-│   ├── visual_encoder.py        # CLIP ViT wrapper
-│   └── text_encoder.py          # BLIP-2 + CLIP text encoder
+│   ├── __init__.py
+│   ├── vad_architecture.py         # CrossAttentionBlock + LanguageGuidedVAD
+│   ├── visual_encoder.py           # CLIP ViT-B/16 wrapper
+│   └── text_encoder.py             # BLIP-2 captioner + CLIP text encoder
 ├── scripts/
-│   ├── 01_extract_features.py   # Offline feature extraction pipeline
-│   ├── 02_train.py              # MIL training loop
-│   └── 03_evaluate.py           # Evaluation and AUROC computation
+│   ├── 01_extract_features.py      # Offline CLIP + BLIP-2 extraction w/ --resume
+│   ├── 02_train.py                 # MIL training loop + AUROC evaluation
+│   ├── 03_evaluate.py              # Inference + frame-level AUROC
+│   └── compute_flops.py            # FLOPs/MACs/Params analysis
 ├── utils/
-│   ├── dataset.py               # PyTorch Dataset for .pt features
-│   ├── losses.py                # Top-K MIL Ranking Loss
-│   ├── metrics.py               # AUROC and Score Interpolation
-│   └── video_utils.py           # T=32 sampling & directory parsing
-├── THESIS_LOG.md                # Comprehensive developmental log
-├── requirements.txt             # Pip dependencies
-└── README.md                    # Project documentation
+│   ├── __init__.py
+│   ├── dataset.py                  # VADDataset — loads .pt feature tensors
+│   ├── losses.py                   # Top-K MIL Ranking Loss
+│   ├── metrics.py                  # AUROC + score interpolation
+│   └── video_utils.py              # Config loading, seeding, T=32 frame sampling
+├── results/
+│   └── video_scores.npy            # Per-video anomaly score curves (post-evaluation)
+├── research papers/                # Reference literature (17 papers)
+├── THESIS_LOG.md                   # Full academic development log
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 📝 Acknowledgements
-- **UCF-Crime Dataset:** Sultani et al. "Real-world Anomaly Detection in Surveillance Videos" (CVPR 2018)
-- **CLIP:** Radford et al. "Learning Transferable Visual Models From Natural Language Supervision" (ICML 2021)
-- **BLIP-2:** Li et al. "Bootstrapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models" (ICML 2023)
+## 📊 Loss Function
+
+$$\mathcal{L}_{total} = \mathcal{L}_{rank} + \lambda_{smooth}\,\mathcal{L}_{smooth} + \lambda_{sparse}\,\mathcal{L}_{sparse}$$
+
+Where:
+$$\mathcal{L}_{rank} = \frac{1}{K}\sum_{k=1}^{K}\max\!\left(0,\ \text{margin} - \left(s_{abn}^{(k)} - s_{nor}^{(k)}\right)\right)$$
+
+| Hyperparameter | Value |
+|---|---|
+| Top-K | 8 |
+| Margin | 1.0 |
+| λ_smooth | 8×10⁻⁵ |
+| λ_sparse | 8×10⁻⁵ |
+| Learning Rate | 1×10⁻⁴ (AdamW) |
+| LR Schedule | StepLR (step=50, γ=0.1) |
+| Epochs | 100 |
+
+---
+
+## 📝 References
+
+- **UCF-Crime Dataset:** Sultani et al. *"Real-world Anomaly Detection in Surveillance Videos"* (CVPR 2018)
+- **CLIP:** Radford et al. *"Learning Transferable Visual Models From Natural Language Supervision"* (ICML 2021)
+- **BLIP-2:** Li et al. *"Bootstrapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models"* (ICML 2023)
+- **RTFM:** Tian et al. *"Weakly-supervised Video Anomaly Detection with Robust Temporal Feature Magnitude Learning"* (ICCV 2021)
+- **Attention Is All You Need:** Vaswani et al. (NeurIPS 2017)
