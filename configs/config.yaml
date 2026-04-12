@@ -68,7 +68,7 @@ training:
   batch_size: 32
   learning_rate: 1.0e-4
   weight_decay: 5.0e-4
-  epochs: 100
+  epochs: 5 # Changed from 100 to 5 just for testing purposes; set back to 100 for actual training
   # Learning rate scheduler (step decay)
   lr_scheduler:
     step_size: 50

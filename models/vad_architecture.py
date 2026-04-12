@@ -189,7 +189,12 @@ class LanguageGuidedVAD(nn.Module):
             guided = layer(text_features=guided, visual_features=visual_features)
 
         # Classify: (B, 32, 512) → (B, 32, 1) → (B, 32)
-        scores: torch.Tensor = self.classifier(guided).squeeze(-1)
+        
+        # Original semantic scoring (cross-attention guided)
+        # scores: torch.Tensor = self.classifier(guided).squeeze(-1)
+
+        # Visual-only baseline (no text guidance)
+        scores: torch.Tensor = self.classifier(visual_features).squeeze(-1)
 
         return scores
 
