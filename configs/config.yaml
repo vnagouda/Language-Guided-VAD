@@ -1,89 +1,66 @@
 # =============================================================================
 # Language-Guided Weakly Supervised VAD — Central Configuration
 # =============================================================================
-# All hyperparameters are defined here. Python scripts MUST read from this file
-# and never hardcode values. This follows the No-Hardcoding rule.
 
 # --- Reproducibility ---
 seed: 42
 
 # --- Data Paths ---
 data:
-  # Root directory containing Train/ and Test/ with class sub-folders of PNG frames
   raw_dir: "data/raw"
-  # Output directory for pre-extracted .pt feature tensors
   features_dir: "data/features"
-  # Temporal annotation file for frame-level test ground truth
   annotation_file: "data/Temporal_Anomaly_Annotation.txt"
-  # Image extensions to glob for when loading frame directories
   frame_extensions:
     - ".png"
     - ".jpg"
 
 # --- Feature Extraction ---
 extraction:
-  # Number of temporal segments per video (T=32 paradigm)
   num_segments: 32
-  # Number of frames to sample per segment for averaging (1 = center frame only)
   frames_per_segment: 1
-  # CLIP model identifier (HuggingFace)
   clip_model_name: "openai/clip-vit-base-patch16"
-  # BLIP-2 model identifier (HuggingFace)
   blip2_model_name: "Salesforce/blip2-opt-2.7b"
-  # Input image resolution for CLIP
   image_size: 224
-  # Batch size for processing frames through the encoders
   extraction_batch_size: 16
 
 # --- Model Architecture ---
 model:
-  # Dimensionality of CLIP feature vectors
   feature_dim: 512
-  # Number of temporal segments (must match extraction.num_segments)
   num_segments: 32
-  # Number of attention heads in Multi-Head Cross-Attention
   num_heads: 8
-  # Number of stacked Cross-Attention blocks
   num_layers: 1
-  # Dropout probability in the MLP classifier and attention
   dropout: 0.5
-  # Hidden dimension in the feed-forward sub-layer of the attention block
   ff_dim: 2048
-  # Hidden dimension in the MLP classifier head
   classifier_hidden_dim: 128
 
 # --- Loss Function ---
 loss:
-  # Number of Top-K segments to select from each bag for the ranking loss.
-  # Kept for backward compatibility, but not used in AIS-style ranking.
-  top_k: 8
-  # Margin for the hinge/ranking loss: max(0, margin - (s_abn - s_nor))
+  top_k: 8   # unused in AIS, kept for compatibility
   margin: 1.0
-  # Weight for the temporal smoothness penalty: lambda_smooth * sum((s[t+1] - s[t])^2)
   lambda_smooth: 8.0e-5
-  # Weight for the sparsity (L1) penalty: lambda_sparse * sum(|s|)
   lambda_sparse: 8.0e-5
-  # AIS temperature schedule: broad weighting early, sharper weighting later
+
+  # 🔥 AIS temperature schedule (UPDATED for long training)
   tau_initial: 1.0
   tau_final: 0.07
-  tau_decay_epochs: 5
+  tau_decay_epochs: 50   # IMPORTANT: slower decay
 
 # --- Training ---
 training:
   batch_size: 32
   learning_rate: 1.0e-4
   weight_decay: 5.0e-4
-  epochs: 5 # Changed from 100 to 5 just for testing purposes; set back to 100 for actual training
-  # Learning rate scheduler (step decay)
+
+  # 🔥 FULL TRAINING
+  epochs: 100
+
   lr_scheduler:
     step_size: 50
     gamma: 0.1
-  # Path to save model checkpoints
+
   checkpoint_dir: "checkpoints"
-  # Logging frequency (every N batches)
   log_interval: 10
 
 # --- Evaluation ---
 evaluation:
-  # Path to save evaluation results (anomaly score curves, AUROC)
   results_dir: "results"
