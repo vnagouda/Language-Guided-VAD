@@ -54,7 +54,8 @@ model:
 
 # --- Loss Function ---
 loss:
-  # Number of Top-K segments to select from each bag for the ranking loss
+  # Number of Top-K segments to select from each bag for the ranking loss.
+  # Kept for backward compatibility, but not used in AIS-style ranking.
   top_k: 8
   # Margin for the hinge/ranking loss: max(0, margin - (s_abn - s_nor))
   margin: 1.0
@@ -62,6 +63,10 @@ loss:
   lambda_smooth: 8.0e-5
   # Weight for the sparsity (L1) penalty: lambda_sparse * sum(|s|)
   lambda_sparse: 8.0e-5
+  # AIS temperature schedule: broad weighting early, sharper weighting later
+  tau_initial: 1.0
+  tau_final: 0.07
+  tau_decay_epochs: 5
 
 # --- Training ---
 training:

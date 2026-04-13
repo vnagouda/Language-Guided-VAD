@@ -1,16 +1,23 @@
-"""Top-K MIL Ranking Loss with Temporal Smoothness and Sparsity Penalties.
+"""AIS-Style MIL Ranking Loss with Temporal Smoothness and Sparsity Penalties.
 
-This module implements the loss function for Weakly Supervised VAD, following
-the MIL paradigm of Sultani et al. (2018) with extensions from RTFM (2021).
+This module implements a weakly supervised loss for Video Anomaly Detection.
+Compared with hard Top-K MIL, this version uses a temperature-controlled
+softmax weighting over all segments. Early in training, the weighting is broad;
+later, it becomes sharper and focuses more on the most suspicious segments.
 
 Mathematical Formulation:
-    Given a batch of paired (abnormal, normal) bags, each bag is a video of
+    Given a batch of abnormal and normal bags, each bag is a video of
     T=32 segment-level anomaly scores:
 
-    1. **Top-K Ranking Loss**:
-       Select the Top-K highest scores from the abnormal bag and the Top-K
-       highest from the normal bag, then apply hinge loss:
-           L_rank = (1/K) * Σ max(0, margin - (s_abn^k - s_nor^k))
+    1. **AIS-Style Soft Ranking Loss**:
+       Compute soft weights over all segments using a temperature ``tau``:
+           p_t = softmax(s_t / tau)
+
+       Then compute a weighted pooled score per video:
+           S = Σ p_t * s_t
+
+       Finally apply hinge ranking loss:
+           L_rank = mean(max(0, margin - (S_abn - S_nor)))
 
     2. **Temporal Smoothness Penalty**:
            L_smooth = Σ_{t=1}^{T-1} (s[t+1] - s[t])^2
@@ -29,18 +36,23 @@ import torch.nn as nn
 
 
 class MILRankingLoss(nn.Module):
-    """Top-K Multiple Instance Learning Ranking Loss.
+    """AIS-style Multiple Instance Learning Ranking Loss.
 
-    This loss treats each video as a "bag" of T=32 segment instances.  It
-    compares the top-K segment scores from abnormal bags against the top-K
-    from normal bags, enforcing a margin between them.  Additional temporal
-    smoothness and sparsity constraints regularise the predictions.
+    This loss treats each video as a "bag" of T=32 segment instances. Instead
+    of selecting a hard Top-K set of segments, it computes temperature-controlled
+    softmax weights over all segments, producing a weighted pooled anomaly score
+    per video. This reduces the risk of learning from noisy high-scoring segments
+    early in training.
 
     Args:
-        top_k: Number of top-scoring segments to select per bag.
+        top_k: Kept for backward compatibility with the config, but not used in
+            the AIS-style ranking loss.
         margin: Margin for the hinge ranking loss.
         lambda_smooth: Weight for the temporal smoothness penalty.
         lambda_sparse: Weight for the L1 sparsity penalty.
+        tau_initial: Initial temperature for softmax weighting.
+        tau_final: Final temperature after decay.
+        tau_decay_epochs: Number of epochs over which to decay tau.
     """
 
     def __init__(
@@ -49,6 +61,9 @@ class MILRankingLoss(nn.Module):
         margin: float = 1.0,
         lambda_smooth: float = 8e-5,
         lambda_sparse: float = 8e-5,
+        tau_initial: float = 1.0,
+        tau_final: float = 0.07,
+        tau_decay_epochs: int = 50,
     ) -> None:
         super().__init__()
         self.top_k = top_k
@@ -56,15 +71,38 @@ class MILRankingLoss(nn.Module):
         self.lambda_smooth = lambda_smooth
         self.lambda_sparse = lambda_sparse
 
+        self.tau_initial = tau_initial
+        self.tau_final = tau_final
+        self.tau_decay_epochs = tau_decay_epochs
+        self.tau = tau_initial
+
+    def update_tau(self, epoch: int) -> None:
+        """Update the softmax temperature using exponential decay.
+
+        Higher tau -> broader weighting across segments.
+        Lower tau -> sharper focus on the highest-scoring segments.
+
+        Args:
+            epoch: Current training epoch (1-indexed).
+        """
+        if epoch >= self.tau_decay_epochs:
+            self.tau = self.tau_final
+            return
+
+        ratio = epoch / max(1, self.tau_decay_epochs)
+        self.tau = self.tau_initial * (
+            (self.tau_final / self.tau_initial) ** ratio
+        )
+
     def _ranking_loss(
         self,
         scores_abn: torch.Tensor,
         scores_nor: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute the Top-K hinge ranking loss.
+        """Compute the AIS-style soft ranking loss.
 
-        For each pair: select top-K scores from abnormal bag, top-K from
-        normal bag.  Both are sorted descending and paired element-wise.
+        Uses temperature-controlled softmax weights over all 32 segments, then
+        computes a weighted pooled score per video before applying hinge loss.
 
         Args:
             scores_abn: Anomaly scores for abnormal videos, shape ``(B_abn, 32)``.
@@ -73,18 +111,22 @@ class MILRankingLoss(nn.Module):
         Returns:
             torch.Tensor: Scalar ranking loss.
         """
-        # Top-K from each bag, sorted descending
-        topk_abn, _ = torch.topk(scores_abn, self.top_k, dim=1)  # (B_abn, K)
-        topk_nor, _ = torch.topk(scores_nor, self.top_k, dim=1)  # (B_nor, K)
+        # Soft weights over all segments
+        weights_abn = torch.softmax(scores_abn / self.tau, dim=1)  # (B_abn, 32)
+        weights_nor = torch.softmax(scores_nor / self.tau, dim=1)  # (B_nor, 32)
+
+        # Weighted pooled score per video
+        pooled_abn = (weights_abn * scores_abn).sum(dim=1)  # (B_abn,)
+        pooled_nor = (weights_nor * scores_nor).sum(dim=1)  # (B_nor,)
 
         # If batch sizes differ, use the minimum
-        min_batch = min(topk_abn.size(0), topk_nor.size(0))
-        topk_abn = topk_abn[:min_batch]
-        topk_nor = topk_nor[:min_batch]
+        min_batch = min(pooled_abn.size(0), pooled_nor.size(0))
+        pooled_abn = pooled_abn[:min_batch]
+        pooled_nor = pooled_nor[:min_batch]
 
         # Hinge loss: max(0, margin - (score_abn - score_nor))
         loss: torch.Tensor = torch.clamp(
-            self.margin - (topk_abn - topk_nor), min=0.0
+            self.margin - (pooled_abn - pooled_nor), min=0.0
         ).mean()
 
         return loss
@@ -137,7 +179,7 @@ class MILRankingLoss(nn.Module):
         Returns:
             dict[str, torch.Tensor]: Dictionary with keys:
                 - ``"total_loss"``: Combined scalar loss for backpropagation.
-                - ``"ranking_loss"``: The Top-K ranking component.
+                - ``"ranking_loss"``: The AIS-style ranking component.
                 - ``"smoothness_loss"``: The temporal smoothness component.
                 - ``"sparsity_loss"``: The L1 sparsity component.
         """
@@ -170,4 +212,7 @@ class MILRankingLoss(nn.Module):
             margin=loss_cfg["margin"],
             lambda_smooth=loss_cfg["lambda_smooth"],
             lambda_sparse=loss_cfg["lambda_sparse"],
+            tau_initial=loss_cfg["tau_initial"],
+            tau_final=loss_cfg["tau_final"],
+            tau_decay_epochs=loss_cfg["tau_decay_epochs"],
         )

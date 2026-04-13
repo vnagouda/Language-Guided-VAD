@@ -124,10 +124,14 @@ def train(config_path: str) -> None:
                 )
 
         scheduler.step()
+        criterion.update_tau(epoch)
 
         avg_epoch_loss = np.mean(epoch_losses) if epoch_losses else float("nan")
-        print(f"Epoch {epoch}/{epochs} — Avg Loss: {avg_epoch_loss:.4f}, "
-              f"LR: {scheduler.get_last_lr()[0]:.2e}")
+        print(
+            f"Epoch {epoch}/{epochs} — Avg Loss: {avg_epoch_loss:.4f}, "
+            f"LR: {scheduler.get_last_lr()[0]:.2e}, "
+            f"tau: {criterion.tau:.4f}"
+        )
 
         # --- End-of-Epoch Evaluation ---
         if len(test_loader.dataset) > 0:

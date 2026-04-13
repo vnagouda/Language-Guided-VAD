@@ -1,7 +1,7 @@
 """Language-Guided Cross-Attention VAD Network.
 
 This module implements the core trainable architecture for Weakly Supervised
-Video Anomaly Detection.  The key innovation is the **Cross-Attention** fusion
+Video Anomaly Detection. The key innovation is the Cross-Attention fusion
 mechanism where textual features serve as Queries to guide the visual
 Keys/Values, departing from naive concatenation.
 
@@ -34,8 +34,8 @@ class CrossAttentionBlock(nn.Module):
     """A single Multi-Head Cross-Attention block with residual connection and FFN.
 
     Implements the transformer-style cross-attention where:
-        - **Query** = text features (semantic guidance signal)
-        - **Key, Value** = visual features (scene information)
+        - Query = text features (semantic guidance signal)
+        - Key, Value = visual features (scene information)
 
     This forces the network to attend to visual regions that are semantically
     relevant to the textual description, amplifying abnormal visual cues.
@@ -64,8 +64,7 @@ class CrossAttentionBlock(nn.Module):
             batch_first=True,  # (Batch, Seq, Dim)
         )
 
-        # Layer norms (pre-norm is more stable, but we use post-norm
-        # to match the standard Transformer formulation)
+        # Layer norms
         self.norm1 = nn.LayerNorm(feature_dim)
         self.norm2 = nn.LayerNorm(feature_dim)
 
@@ -87,29 +86,26 @@ class CrossAttentionBlock(nn.Module):
 
         Mathematical formulation:
             attn_out = MultiHead(Q=text, K=visual, V=visual)
-            x = LayerNorm(text + attn_out)          # Residual + Norm
-            output = LayerNorm(x + FFN(x))           # Residual + Norm
+            x = LayerNorm(text + attn_out)
+            output = LayerNorm(x + FFN(x))
 
         Args:
-            text_features: Text embeddings of shape ``(Batch, 32, feature_dim)``.
-                These serve as the Query — the semantic guidance signal.
-            visual_features: Visual embeddings of shape ``(Batch, 32, feature_dim)``.
-                These serve as both Key and Value.
+            text_features: Text embeddings of shape (Batch, 32, feature_dim).
+            visual_features: Visual embeddings of shape (Batch, 32, feature_dim).
 
         Returns:
-            torch.Tensor: Guided features of shape ``(Batch, 32, feature_dim)``.
+            Guided features of shape (Batch, 32, feature_dim).
         """
-        # Cross-Attention: Q=text, K=V=visual
         attn_output, _ = self.cross_attn(
             query=text_features,
             key=visual_features,
             value=visual_features,
         )
 
-        # Residual connection + LayerNorm (add to text, not visual)
+        # Residual + norm
         x = self.norm1(text_features + attn_output)
 
-        # Feed-Forward with Residual + LayerNorm
+        # Feed-forward + residual + norm
         ffn_output = self.ffn(x)
         output: torch.Tensor = self.norm2(x + ffn_output)
 
@@ -119,13 +115,12 @@ class CrossAttentionBlock(nn.Module):
 class LanguageGuidedVAD(nn.Module):
     """Language-Guided Video Anomaly Detection Network.
 
-    Stacks ``num_layers`` :class:`CrossAttentionBlock` modules, then maps the
-    guided features through an MLP classifier to produce per-segment anomaly
-    scores in [0, 1].
+    Stacks ``num_layers`` CrossAttentionBlock modules, then maps the guided
+    features through an MLP classifier to produce per-segment anomaly scores.
 
     Args:
-        feature_dim: Dimensionality of CLIP feature vectors (512).
-        num_segments: Number of temporal segments per video (T=32).
+        feature_dim: Dimensionality of CLIP feature vectors.
+        num_segments: Number of temporal segments per video.
         num_heads: Number of attention heads per cross-attention block.
         num_layers: Number of stacked cross-attention blocks.
         ff_dim: Hidden dimension of the feed-forward sub-layers.
@@ -159,18 +154,12 @@ class LanguageGuidedVAD(nn.Module):
             for _ in range(num_layers)
         ])
 
-        # MLP Classifier Head: maps each segment's guided feature → scalar score
+        # MLP Classifier Head: maps each segment's guided feature -> scalar score
         self.classifier = nn.Sequential(
             nn.Linear(feature_dim, classifier_hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(classifier_hidden_dim, 1),
-            nn.Sigmoid(),
-        )
-        
-        # Magnitude branch: maps raw visual feature norm -> scalar score in [0, 1]
-        self.magnitude_head = nn.Sequential(
-            nn.Linear(1, 1),
             nn.Sigmoid(),
         )
 
@@ -182,52 +171,25 @@ class LanguageGuidedVAD(nn.Module):
         """Forward pass: cross-attention fusion followed by per-segment scoring.
 
         Args:
-            visual_features: Visual feature tensor of shape ``(Batch, 32, 512)``.
-            text_features: Text feature tensor of shape ``(Batch, 32, 512)``.
+            visual_features: Visual feature tensor of shape (Batch, 32, 512).
+            text_features: Text feature tensor of shape (Batch, 32, 512).
 
         Returns:
-            torch.Tensor: Anomaly scores of shape ``(Batch, 32)``, each value
-            in the range [0, 1].
+            Anomaly scores of shape (Batch, 32), each value in [0, 1].
         """
         # Pass through stacked cross-attention blocks
         guided = text_features
         for layer in self.attention_layers:
             guided = layer(text_features=guided, visual_features=visual_features)
 
-        # Classify: (B, 32, 512) → (B, 32, 1) → (B, 32)
-        
-        #Original semantic scoring (cross-attention guided)
+        # Original semantic scoring (cross-attention guided)
         scores: torch.Tensor = self.classifier(guided).squeeze(-1)
-
-        # Visual-only baseline (no text guidance)
-        #scores: torch.Tensor = self.classifier(visual_features).squeeze(-1)
-        
-        # Semantic branch: score text-guided visual features
-        semantic_score: torch.Tensor = self.classifier(guided).squeeze(-1)  # (B, 32)
-
-        # Magnitude branch: L2 norm of raw visual features
-        norms: torch.Tensor = torch.norm(visual_features, dim=-1, keepdim=True)  # (B, 32, 1)
-        mag_score: torch.Tensor = self.magnitude_head(norms).squeeze(-1)         # (B, 32)
-
-        # Fusion: semantic score gated by magnitude score
-        #scores: torch.Tensor = semantic_score * mag_score
-        
-        # Weighted fusion (v2)
-        scores: torch.Tensor = 0.8 * semantic_score + 0.2 * mag_score
-
 
         return scores
 
     @classmethod
     def from_config(cls, config: dict) -> "LanguageGuidedVAD":
-        """Construct the model from a configuration dictionary.
-
-        Args:
-            config: Full configuration dict (loaded from ``config.yaml``).
-
-        Returns:
-            LanguageGuidedVAD: Instantiated model with config-driven parameters.
-        """
+        """Construct the model from a configuration dictionary."""
         model_cfg = config["model"]
         return cls(
             feature_dim=model_cfg["feature_dim"],
