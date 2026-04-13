@@ -6,6 +6,7 @@
 | E2     | Semantic-guided (Cross-Attention)    | —               | 5      | 0.9432      | 0.7707      | +0.0044        | +0.0368        | Major improvement in frame-level localisation |
 | E3     | Semantic + Magnitude (v1)            | Multiplicative  | 5      | 0.9469      | 0.7717      | +0.0037        | +0.0010        | Modest gain; magnitude acts as complement     |
 | E4     | Semantic + Magnitude (v2)           | Weighted (0.8/0.2) | 5      | 0.9455      | 0.7700      | -0.0014        | -0.0017        | Slight drop vs v1; magnitude contribution sensitive to fusion |
+| E5 | Semantic + AIS-style soft ranking | Soft instance selection | 5 | 0.9462 | 0.7770 | +0.0030 | +0.0063 | Best frame-level result so far; improves segment selection under weak supervision |
 
 ---
 
@@ -27,4 +28,5 @@
 - Magnitude provides a small but consistent improvement at video level
 - Fusion strategy impacts performance: multiplicative fusion slightly outperforms weighted fusion in this setup
 - The limited gains suggest that magnitude acts as a weak complementary signal rather than a primary anomaly indicator
+- AIS-style soft segment weighting outperformed all previous variants at frame level, suggesting that improving instance selection is more effective than simple magnitude fusion
 
