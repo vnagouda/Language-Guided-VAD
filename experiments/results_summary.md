@@ -5,6 +5,7 @@
 | E1     | Visual-only                          | —               | 5      | 0.9388      | 0.7339      | —              | —              | Strong baseline; limited localisation         |
 | E2     | Semantic-guided (Cross-Attention)    | —               | 5      | 0.9432      | 0.7707      | +0.0044        | +0.0368        | Major improvement in frame-level localisation |
 | E3     | Semantic + Magnitude (v1)            | Multiplicative  | 5      | 0.9469      | 0.7717      | +0.0037        | +0.0010        | Modest gain; magnitude acts as complement     |
+| E4     | Semantic + Magnitude (v2)           | Weighted (0.8/0.2) | 5      | 0.9455      | 0.7700      | -0.0014        | -0.0017        | Slight drop vs v1; magnitude contribution sensitive to fusion |
 
 ---
 
@@ -24,5 +25,6 @@
 - Semantic guidance significantly improves frame-level AUROC (+3.7%)
 - Magnitude is not directly aligned with anomaly (normal > anomaly in norm)
 - Magnitude provides a small but consistent improvement at video level
-- Multiplicative fusion may be too restrictive  
+- Fusion strategy impacts performance: multiplicative fusion slightly outperforms weighted fusion in this setup
+- The limited gains suggest that magnitude acts as a weak complementary signal rather than a primary anomaly indicator
 
