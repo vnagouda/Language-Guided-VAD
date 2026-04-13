@@ -24,4 +24,5 @@
 - Semantic guidance significantly improves frame-level AUROC (+3.7%)
 - Magnitude is not directly aligned with anomaly (normal > anomaly in norm)
 - Magnitude provides a small but consistent improvement at video level
-- Multiplicative fusion may be too restrictive
+- Multiplicative fusion may be too restrictive  
+
