@@ -197,7 +197,7 @@ class LanguageGuidedVAD(nn.Module):
         # Classify: (B, 32, 512) → (B, 32, 1) → (B, 32)
         
         #Original semantic scoring (cross-attention guided)
-        #scores: torch.Tensor = self.classifier(guided).squeeze(-1)
+        scores: torch.Tensor = self.classifier(guided).squeeze(-1)
 
         # Visual-only baseline (no text guidance)
         #scores: torch.Tensor = self.classifier(visual_features).squeeze(-1)
@@ -210,7 +210,10 @@ class LanguageGuidedVAD(nn.Module):
         mag_score: torch.Tensor = self.magnitude_head(norms).squeeze(-1)         # (B, 32)
 
         # Fusion: semantic score gated by magnitude score
-        scores: torch.Tensor = semantic_score * mag_score
+        #scores: torch.Tensor = semantic_score * mag_score
+        
+        # Weighted fusion (v2)
+        scores: torch.Tensor = 0.8 * semantic_score + 0.2 * mag_score
 
 
         return scores
