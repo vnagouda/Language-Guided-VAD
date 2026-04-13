@@ -167,6 +167,12 @@ class LanguageGuidedVAD(nn.Module):
             nn.Linear(classifier_hidden_dim, 1),
             nn.Sigmoid(),
         )
+        
+        # Magnitude branch: maps raw visual feature norm -> scalar score in [0, 1]
+        self.magnitude_head = nn.Sequential(
+            nn.Linear(1, 1),
+            nn.Sigmoid(),
+        )
 
     def forward(
         self,
@@ -191,10 +197,21 @@ class LanguageGuidedVAD(nn.Module):
         # Classify: (B, 32, 512) → (B, 32, 1) → (B, 32)
         
         #Original semantic scoring (cross-attention guided)
-        scores: torch.Tensor = self.classifier(guided).squeeze(-1)
+        #scores: torch.Tensor = self.classifier(guided).squeeze(-1)
 
         # Visual-only baseline (no text guidance)
         #scores: torch.Tensor = self.classifier(visual_features).squeeze(-1)
+        
+        # Semantic branch: score text-guided visual features
+        semantic_score: torch.Tensor = self.classifier(guided).squeeze(-1)  # (B, 32)
+
+        # Magnitude branch: L2 norm of raw visual features
+        norms: torch.Tensor = torch.norm(visual_features, dim=-1, keepdim=True)  # (B, 32, 1)
+        mag_score: torch.Tensor = self.magnitude_head(norms).squeeze(-1)         # (B, 32)
+
+        # Fusion: semantic score gated by magnitude score
+        scores: torch.Tensor = semantic_score * mag_score
+
 
         return scores
 
