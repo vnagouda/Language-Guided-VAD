@@ -1,8 +1,23 @@
+"""
+Analyse visual feature magnitude (L2 norm) for anomaly vs normal segments.
+
+Why this script exists:
+- Prior work (e.g., RTFM, ICCV 2021) introduces an objective to learn features
+  where anomalous segments have larger magnitudes than normal ones
+- This script tests whether feature magnitude already carries anomaly signal
+  without explicitly enforcing such a constraint
+
+Goal:
+Determine whether feature magnitude is naturally informative for anomaly detection
+in this setting.
+"""
+
 from pathlib import Path
 import torch
 import numpy as np
 
 FEATURES_ROOT = Path("data/features")
+
 
 def collect_split(split_name: str):
     split_dir = FEATURES_ROOT / split_name
@@ -18,10 +33,10 @@ def collect_split(split_name: str):
         if not label_path.exists():
             continue
 
-        visual = torch.load(vis_path, map_location="cpu", weights_only=True)  # (32, 512)
+        visual = torch.load(vis_path, map_location="cpu", weights_only=True)
         label = int(torch.load(label_path, map_location="cpu", weights_only=True).item())
 
-        norms = torch.norm(visual, dim=-1).numpy()  # (32,)
+        norms = torch.norm(visual, dim=-1).numpy()
 
         if label == 1:
             anomaly_norms.extend(norms.tolist())
@@ -30,10 +45,12 @@ def collect_split(split_name: str):
 
     return np.array(anomaly_norms), np.array(normal_norms)
 
+
 def describe(name: str, values: np.ndarray):
     if len(values) == 0:
         print(f"{name}: no values")
         return
+
     print(f"{name}")
     print(f"  count:  {len(values)}")
     print(f"  mean:   {values.mean():.6f}")
@@ -41,6 +58,7 @@ def describe(name: str, values: np.ndarray):
     print(f"  min:    {values.min():.6f}")
     print(f"  max:    {values.max():.6f}")
     print()
+
 
 def main():
     for split in ["Train", "Test"]:
@@ -57,6 +75,7 @@ def main():
             diff = anomaly_norms.mean() - normal_norms.mean()
             print(f"Mean difference (anomaly - normal): {diff:.6f}")
             print()
+
 
 if __name__ == "__main__":
     main()
