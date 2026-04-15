@@ -1,66 +1,93 @@
 # =============================================================================
 # Language-Guided Weakly Supervised VAD — Central Configuration
 # =============================================================================
+# All hyperparameters are defined here. Python scripts MUST read from this file
+# and never hardcode values. This follows the No-Hardcoding rule.
 
 # --- Reproducibility ---
 seed: 42
 
 # --- Data Paths ---
 data:
+  # Root directory containing Train/ and Test/ frame folders
   raw_dir: "data/raw"
+  # Output directory for extracted feature tensors
   features_dir: "data/features"
+  # Temporal annotation file used for frame-level evaluation
   annotation_file: "data/Temporal_Anomaly_Annotation.txt"
+  # Accepted frame image extensions
   frame_extensions:
     - ".png"
     - ".jpg"
 
 # --- Feature Extraction ---
 extraction:
+  # Number of temporal segments per video
   num_segments: 32
+  # Number of frames sampled per segment
   frames_per_segment: 1
+  # CLIP model used for visual encoding
   clip_model_name: "openai/clip-vit-base-patch16"
+  # BLIP-2 model used for caption generation
   blip2_model_name: "Salesforce/blip2-opt-2.7b"
+  # Input image resolution for CLIP
   image_size: 224
+  # Batch size for feature extraction
   extraction_batch_size: 16
 
 # --- Model Architecture ---
 model:
+  # Dimensionality of feature vectors
   feature_dim: 512
+  # Number of temporal segments (must match extraction.num_segments)
   num_segments: 32
+  # Number of attention heads in cross-attention
   num_heads: 8
+  # Number of stacked cross-attention blocks
   num_layers: 1
+  # Dropout probability
   dropout: 0.5
+  # Hidden dimension of the feed-forward sub-layer
   ff_dim: 2048
+  # Hidden dimension of the classifier head
   classifier_hidden_dim: 128
 
 # --- Loss Function ---
 loss:
-  top_k: 8   # unused in AIS, kept for compatibility
+  # Retained for backward compatibility with earlier Top-K MIL settings.
+  # Not used in AIS-style soft instance selection.
+  top_k: 8
+  # Margin for hinge ranking loss
   margin: 1.0
+  # Weight for temporal smoothness regularisation
   lambda_smooth: 8.0e-5
+  # Weight for sparsity regularisation
   lambda_sparse: 8.0e-5
 
-  # 🔥 AIS temperature schedule (UPDATED for long training)
+  # Temperature schedule for AIS-style soft instance selection
   tau_initial: 1.0
   tau_final: 0.07
-  tau_decay_epochs: 50   # IMPORTANT: slower decay
+  tau_decay_epochs: 50
 
 # --- Training ---
 training:
   batch_size: 32
   learning_rate: 1.0e-4
   weight_decay: 5.0e-4
-
-  # 🔥 FULL TRAINING
   epochs: 100
 
+  # Learning rate scheduler
   lr_scheduler:
     step_size: 50
     gamma: 0.1
 
+  # Output directory for checkpoints
   checkpoint_dir: "checkpoints"
+  # Logging frequency in training iterations
   log_interval: 10
 
 # --- Evaluation ---
 evaluation:
+  # Output directory for evaluation results
   results_dir: "results"
+  
