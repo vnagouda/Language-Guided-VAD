@@ -1,0 +1,59 @@
+seed: 42
+data:
+  raw_dir: data/raw
+  features_dir: data/features_v31_blip2_prompt
+  annotation_file: data/Temporal_Anomaly_Annotation.txt
+  frame_extensions:
+  - .png
+  - .jpg
+extraction:
+  num_segments: 32
+  frames_per_segment: 5
+  clip_model_name: openai/clip-vit-large-patch14
+  captioner: blip2
+  blip2_model_name: Salesforce/blip2-opt-2.7b
+  blip2_prompt: 'Question: What is happening in this image? Answer:'
+  use_patch_tokens: true
+  extract_flow: true
+  image_size: 224
+  extraction_batch_size: 4
+model:
+  feature_dim: 768
+  num_segments: 32
+  num_heads: 8
+  num_layers: 1
+  dropout: 0.4843094066591623
+  ff_dim: 3072
+  classifier_bottleneck_dim: 64
+  classifier_hidden_dim: 128
+  use_magnitude_branch: true
+  use_flow_in_magnitude: false
+training:
+  batch_size: 1024
+  epochs: 1000
+  learning_rate: 0.00014459520371367624
+  weight_decay: 0.0008826930761126868
+  lr_scheduler:
+    type: step
+    step_size: 400
+    gamma: 0.1
+  gradient_clip_max_norm: 5.0
+  self_training_start_epoch: 530
+  lambda_self: 0.20865978414618205
+  mist_pseudo_k: 5
+  phase2_lr: 2.089e-05
+  log_interval: 10
+  checkpoint_dir: checkpoints_v31
+  eval_frame_level_every: 1
+loss:
+  ais_score_threshold: 0.9
+  ais_k_min: 3
+  ais_warm_start_epochs: 20
+  ais_warm_k: 8
+  margin_magnitude: 1.0
+  lambda_magnitude: 0.01918288697587615
+  lambda_antagonistic: 2.5754738939529007
+  lambda_smooth: 1.0932056783004346e-05
+  lambda_smooth_phase2: 1.0e-05
+evaluation:
+  results_dir: results_v31

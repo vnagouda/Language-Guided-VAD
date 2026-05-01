@@ -1,0 +1,120 @@
+# =============================================================================
+# V11 Configuration — V5 HPO Foundation + V10 Corrected Eval + Novel Losses
+# =============================================================================
+# Features:    data/features_v31_blip2_prompt/  (same T=32 BLIP-2 features as V5)
+# Checkpoints: checkpoints_v11/
+# Results:     results_v11/
+#
+# V11 strategy:
+#   - V5 is the TRUE best model at 0.7334 Frame-AUROC (corrected evaluation)
+#   - V5's HPO-tuned hyperparameters are the foundation
+#   - V10 evaluation bug fixes applied (actual frame counts, no Gaussian)
+#   - V10 config key aliases applied (no silent defaults)
+#   - V10 novel contributions: SCL + Adaptive Smoothness Decay
+#   - T=32 (proven to outperform T=64 under corrected evaluation)
+#   - NO PDC (use_temporal_convolutions: false) — V7 PDC hurt frame-AUROC
+#   - Prototypes kept but with zero weight (V6 prototypes also hurt)
+# =============================================================================
+
+seed: 42
+
+data:
+  raw_dir: "data/raw"
+  features_dir: "data/features_v31_blip2_prompt"
+  annotation_file: "data/Temporal_Anomaly_Annotation.txt"
+  frame_extensions:
+    - ".png"
+    - ".jpg"
+
+extraction:
+  num_segments: 32
+  frames_per_segment: 5
+  clip_model_name: "openai/clip-vit-large-patch14"
+  captioner: "blip2"
+  blip2_model_name: "Salesforce/blip2-opt-2.7b"
+  blip2_prompt: "Question: What is happening in this image? Answer:"
+  use_patch_tokens: true
+  extract_flow: true
+  image_size: 224
+  extraction_batch_size: 4
+
+model:
+  feature_dim: 768
+  num_segments: 32
+  num_heads: 8
+  num_layers: 1
+  dropout: 0.4843                 # V5 HPO optimal
+  ff_dim: 3072
+  classifier_bottleneck_dim: 64
+  classifier_hidden_dim: 128
+  use_magnitude_branch: true
+  use_flow_in_magnitude: false
+  use_multi_scale: true           # V4+ multi-scale cross-attention
+  use_temporal_convolutions: false # PDC disabled (hurt frame-AUROC in V7)
+
+  # Prototypes initialized but effectively disabled via zero lambdas below
+  num_prototypes: 16
+  num_normal_prototypes: 16
+
+loss:
+  # AIS parameters — V5 HPO optimal (wider K for stable gradients)
+  ais_score_threshold: 0.9
+  ais_k_min: 5                    # V5: more segments per MIL (was 3 in V4)
+  ais_warm_start_epochs: 20
+  ais_warm_k: 12                  # V5: higher warm K (was 8 in V4)
+
+  # Magnitude branch — V5 HPO optimal (canonical key names)
+  lambda_magnitude: 0.01918
+  margin_magnitude: 1.0
+
+  # Antagonistic loss — V5 HPO optimal (2.5x stronger than default)
+  lambda_antagonistic: 2.5755
+
+  # Temporal smoothness — V5 HPO optimal (1000x smaller than V10's 0.01!)
+  lambda_smooth: 1.093e-05
+  smooth_decay_rate: 0.95         # V10 APEX: exponential decay after MIST
+  
+  # Prototype losses DISABLED (V6 prototypes hurt frame-AUROC: 0.73→0.70)
+  lambda_prototype_cluster: 0.0
+  lambda_prototype_sep: 0.0
+  margin_prototype: 2.0
+
+  # V10 APEX Novel: Snippet Contrastive Learning
+  lambda_snippet_contrastive: 0.1
+  snippet_margin: 2.0
+
+training:
+  batch_size: 1024                # V5 original
+  num_workers: 4
+  epochs: 500                     # V5 ran 1000, but converges earlier
+  learning_rate: 0.00014460       # V5 HPO optimal
+  weight_decay: 0.0008827         # V5 HPO optimal
+
+  lr_scheduler:
+    type: "cosine_warm"
+    T_0: 50
+    T_mult: 2
+    eta_min: 1.0e-6
+
+  class_balanced_sampling: true   # V5: inverse-frequency category weighting
+
+  gradient_clip_max_norm: 5.0
+  checkpoint_dir: "checkpoints_v11"
+  results_dir: "results_v11"
+
+  # MIST config — V5 values
+  mist:
+    start_epoch: 60
+    pseudo_k: 3                   # V5: slightly broader pseudo-labels
+    lambda_self: 0.05             # V5: slightly stronger than V4
+
+  # Fallback keys for older parsing paths
+  self_training_start_epoch: 60
+  lambda_self: 0.05
+  mist_pseudo_k: 3
+  log_interval: 10
+  eval_frame_level_every: 1
+  lambda_smooth_phase2: 1.0e-05
+
+evaluation:
+  results_dir: "results_v11"

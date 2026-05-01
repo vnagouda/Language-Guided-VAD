@@ -1,15 +1,23 @@
 """PyTorch Dataset and DataLoader utilities for loading pre-extracted .pt features.
 
 After offline feature extraction (``scripts/01_extract_features.py``), each video
-is represented by two ``.pt`` files:
-    - ``{video_name}_visual.pt``  → Tensor[32, 512]
-    - ``{video_name}_text.pt``    → Tensor[32, 512]
+is represented by ``.pt`` files in a uniquely-named feature directory:
+
+    - ``{video_name}_visual.pt``  → Tensor[32, D]   (D=512 V2.x / D=768 V3)
+    - ``{video_name}_text.pt``    → Tensor[32, D]
+    - ``{video_name}_flow.pt``    → Tensor[32]       (optional, V3 only)
+    - ``{video_name}_label.pt``   → scalar int       (0=normal, 1=anomaly)
 
 This module provides:
     - :class:`VADDataset` — loads those tensors and pairs them with video-level
       labels for training with the MIL ranking loss.
     - :func:`get_dataloaders` — convenience factory that builds train and test
       :class:`torch.utils.data.DataLoader` instances.
+
+Backward compatibility:
+    If ``{video_name}_flow.pt`` does not exist (V2.x feature directories), a
+    zero tensor of shape ``(num_segments,)`` is returned as the flow output.
+    This allows the same training script to work with both V2.x and V3 features.
 """
 
 from __future__ import annotations
@@ -25,19 +33,21 @@ from torch.utils.data import Dataset, DataLoader
 class VADDataset(Dataset):
     """Video Anomaly Detection dataset that loads pre-extracted .pt features.
 
-    Each sample is a tuple ``(visual_features, text_features, label)`` where
-    both feature tensors have shape ``(32, 512)`` and ``label`` is an int
-    (0 = normal, 1 = anomaly).
+    Each sample is a 4-tuple:
+        ``(visual_features, text_features, flow_magnitudes, label)``
 
-    The dataset scans the features directory for matching pairs of
-    ``*_visual.pt`` and ``*_text.pt`` files.  Video-level labels are inferred
-    from the parent directory name passed during feature extraction.
+    Tensors:
+        - ``visual_features``:  shape ``(T, D)`` — CLIP visual embeddings.
+        - ``text_features``:    shape ``(T, D)`` — CLIP text embeddings.
+        - ``flow_magnitudes``:  shape ``(T,)``  — optical flow scalars (zero
+                                if ``_flow.pt`` not found — V2.x compatibility).
+        - ``label``:            int, 0 = normal, 1 = anomaly.
 
     Args:
-        features_dir: Path to the directory containing ``.pt`` feature files
-            for a given split (e.g., ``data/features/Train``).
-        num_segments: Expected number of temporal segments (T=32).
-        feature_dim: Expected feature dimensionality (512 for CLIP).
+        features_dir: Path to directory containing ``.pt`` feature files
+            for a given split (e.g., ``data/features_florence2_vitl14_5f_patch/Train``).
+        num_segments: Expected number of temporal segments T (default 32).
+        feature_dim: Expected feature dimensionality D (512 for V2.x, 768 for V3).
     """
 
     def __init__(
@@ -103,17 +113,20 @@ class VADDataset(Dataset):
         """Return the total number of video samples."""
         return len(self.samples)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, int]:
+    def __getitem__(
+        self, index: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
         """Load and return a single video sample.
 
         Args:
             index: Index into the dataset.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, int]:
-                - ``visual_features``: Shape ``(32, 512)``.
-                - ``text_features``: Shape ``(32, 512)``.
-                - ``label``: ``0`` for normal, ``1`` for anomaly.
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+                - ``visual_features``: Shape ``(T, D)``.
+                - ``text_features``:   Shape ``(T, D)``.
+                - ``flow_magnitudes``: Shape ``(T,)`` — zeros if no flow file.
+                - ``label``:           ``0`` for normal, ``1`` for anomaly.
         """
         sample = self.samples[index]
 
@@ -124,17 +137,26 @@ class VADDataset(Dataset):
             sample["text_path"], map_location="cpu", weights_only=True
         )
 
-        # Safety: ensure correct shape
+        # Optional flow features — zero fallback for V2.x feature directories
+        flow_path = sample["visual_path"].parent / f"{sample['video_name']}_flow.pt"
+        if flow_path.exists():
+            flow: torch.Tensor = torch.load(
+                flow_path, map_location="cpu", weights_only=True
+            )  # (T,)
+        else:
+            flow = torch.zeros(self.num_segments, dtype=torch.float32)
+
+        # Shape assertions
         assert visual.shape == (self.num_segments, self.feature_dim), (
-            f"Expected visual shape ({self.num_segments}, {self.feature_dim}), "
+            f"Expected visual ({self.num_segments}, {self.feature_dim}), "
             f"got {visual.shape} for {sample['video_name']}"
         )
         assert text.shape == (self.num_segments, self.feature_dim), (
-            f"Expected text shape ({self.num_segments}, {self.feature_dim}), "
+            f"Expected text ({self.num_segments}, {self.feature_dim}), "
             f"got {text.shape} for {sample['video_name']}"
         )
 
-        return visual, text, sample["label"]
+        return visual, text, flow, sample["label"]
 
 
 def get_dataloaders(

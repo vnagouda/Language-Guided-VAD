@@ -40,9 +40,21 @@ data/features/
 
 # PyTorch model weights / checkpoints  (large binary files)
 # NOTE: keep best_model.pth in checkpoints/ so professor can load the trained model
-# *.pth  <-- intentionally NOT ignored so checkpoints/ is pushed
+*.pth
+!checkpoints/best_model.pth
+!checkpoints/final_model.pth
 *.ckpt
 *.bin
+
+# Ignore all checkpoint directories except the main one (if desired)
+checkpoints_*/
+
+# Ignore all additional data feature directories
+data/features_*/
+data/UCF_*/
+
+# Ignore additional result directories (if they are large)
+# results_*/
 
 # ---------------------------------------------------------------
 # RESULTS — these SHOULD be pushed (small .npy files)
@@ -63,3 +75,8 @@ build/
 # Environment variables (secrets)
 .env
 .env.local
+
+# AI Agent Instructions and folders
+.agents/
+AGENT_INSTRUCTIONS.md
+rules.md

@@ -1,84 +1,131 @@
 # =============================================================================
-# Language-Guided Weakly Supervised VAD — Central Configuration
+# Language-Guided Weakly Supervised VAD — Central Configuration (V2.2)
 # =============================================================================
 # All hyperparameters are defined here. Python scripts MUST read from this file
 # and never hardcode values. This follows the No-Hardcoding rule.
+#
+# V2.2 changes from V2.1 (Phase A — training fixes, no re-extraction):
+#   - loss.lambda_magnitude: 1e-3 → 1e-2  (magnitude branch was never learning)
+#   - training.lr_scheduler: StepLR → CosineAnnealingLR (smoother decay)
+#   - training.eval_frame_level_every: NEW — compute frame-level AUROC in Phase 2
+#   - training.lambda_smooth_phase2: NEW — reduce smoothness penalty in Phase 2
+#     so MIST pseudo-label sharp peaks are not penalised
+#
+# Phase B (V3) will additionally change:
+#   - extraction.clip_model_name → openai/clip-vit-large-patch14
+#   - extraction.frames_per_segment → 5
+#   - extraction.use_patch_tokens → true
+#   - extraction.blip2_prompt (anomaly-focused)
+#   - extraction.extract_flow → true
+#   - model.feature_dim → 768
 
 # --- Reproducibility ---
 seed: 42
 
 # --- Data Paths ---
 data:
-  # Root directory containing Train/ and Test/ with class sub-folders of PNG frames
   raw_dir: "data/raw"
-  # Output directory for pre-extracted .pt feature tensors
-  features_dir: "data/features"
-  # Temporal annotation file for frame-level test ground truth
+  features_dir: "data/features_blip2_vitb16_1f_cls"
   annotation_file: "data/Temporal_Anomaly_Annotation.txt"
-  # Image extensions to glob for when loading frame directories
   frame_extensions:
     - ".png"
     - ".jpg"
 
 # --- Feature Extraction ---
 extraction:
-  # Number of temporal segments per video (T=32 paradigm)
   num_segments: 32
-  # Number of frames to sample per segment for averaging (1 = center frame only)
+  # V2.2: still 1 (re-extraction to 5 is Phase B / V3)
   frames_per_segment: 1
-  # CLIP model identifier (HuggingFace)
   clip_model_name: "openai/clip-vit-base-patch16"
-  # BLIP-2 model identifier (HuggingFace)
   blip2_model_name: "Salesforce/blip2-opt-2.7b"
-  # Input image resolution for CLIP
+  # V3 keys (not active until Phase B re-extraction):
+  # clip_model_name: "openai/clip-vit-large-patch14"
+  # frames_per_segment: 5
+  # use_patch_tokens: true
+  # blip2_prompt: "Question: Describe any actions, people, and unusual or dangerous events visible. Answer:"
+  # extract_flow: true
   image_size: 224
-  # Batch size for processing frames through the encoders
   extraction_batch_size: 16
 
 # --- Model Architecture ---
 model:
-  # Dimensionality of CLIP feature vectors
+  # V2.2: feature_dim still 512 (ViT-B/16); V3 will change to 768 (ViT-L/14)
   feature_dim: 512
-  # Number of temporal segments (must match extraction.num_segments)
   num_segments: 32
-  # Number of attention heads in Multi-Head Cross-Attention
   num_heads: 8
-  # Number of stacked Cross-Attention blocks
+  # V2.1: reverted to 1 — 2-layer attention overfit on UCF-Crime (1,600 videos)
   num_layers: 1
-  # Dropout probability in the MLP classifier and attention
   dropout: 0.5
-  # Hidden dimension in the feed-forward sub-layer of the attention block
   ff_dim: 2048
-  # Hidden dimension in the MLP classifier head
+  # Hourglass FC: compress → expand: 512→64→128→1 (Light-WVAD, G6 fix)
+  classifier_bottleneck_dim: 64
   classifier_hidden_dim: 128
+  # Parallel magnitude branch with learned additive fusion gate (V2.1 fix)
+  use_magnitude_branch: true
 
-# --- Loss Function ---
+# --- Loss Function (V2.2: VADLoss) ---
 loss:
-  # Number of Top-K segments to select from each bag for the ranking loss
-  top_k: 8
-  # Margin for the hinge/ranking loss: max(0, margin - (s_abn - s_nor))
-  margin: 1.0
-  # Weight for the temporal smoothness penalty: lambda_smooth * sum((s[t+1] - s[t])^2)
+  # ---- Adaptive Instance Selection (G2 fix) ----
+  ais_score_threshold: 0.9
+  ais_k_min: 3
+  ais_warm_start_epochs: 20
+  ais_warm_k: 8
+
+  # ---- Feature Magnitude Ranking Loss (V2.2 fix: 10x increase) ----
+  # V2.1: 1e-3 — magnitude hinge never satisfied across 1000 epochs
+  # V2.2: 1e-2 — 10x stronger gradient so MagnitudeBranch finally learns
+  lambda_magnitude: 1.0e-2
+  margin_magnitude: 1.0
+
+  # ---- Antagonistic Loss (Light-WVAD — replaces L1 sparsity, G3 fix) ----
+  lambda_antagonistic: 1.0
+
+  # ---- Temporal Smoothness ----
+  # Phase 1 (MIL): 8e-5 keeps scores smooth during bag-level learning
+  # Phase 2 (MIST): overridden by training.lambda_smooth_phase2 (see below)
   lambda_smooth: 8.0e-5
-  # Weight for the sparsity (L1) penalty: lambda_sparse * sum(|s|)
-  lambda_sparse: 8.0e-5
 
 # --- Training ---
 training:
   batch_size: 32
   learning_rate: 1.0e-4
   weight_decay: 5.0e-4
-  epochs: 100
-  # Learning rate scheduler (step decay)
+  epochs: 1000
+
+  # ---- LR Scheduler (V2.2 fix: CosineAnnealingLR replaces StepLR) ----
+  # StepLR caused sudden drops at epoch 400/800 that destabilised Phase 2.
+  # CosineAnnealingLR smoothly decays LR over the full training run.
   lr_scheduler:
-    step_size: 50
+    type: "cosine"            # "cosine" or "step" — train script reads this
+    T_max: 1000               # Full training length
+    eta_min: 1.0e-6           # Minimum LR at end of cosine cycle
+    # StepLR params kept for reference / fallback:
+    step_size: 400
     gamma: 0.1
-  # Path to save model checkpoints
+
   checkpoint_dir: "checkpoints"
-  # Logging frequency (every N batches)
   log_interval: 10
+
+  # ---- MIST Self-Training (G4 fix) ----
+  self_training_start_epoch: 500
+  lambda_self: 0.5
+  mist_pseudo_k: 3
+
+  # ---- V2.2: Frame-Level Checkpoint Saving ----
+  # Compute frame-level AUROC every N epochs during Phase 2 (epoch >= 500).
+  # Saves best_model_framelevel.pth when frame-level AUROC improves.
+  # Set to 0 to disable (evaluation against annotation file required).
+  eval_frame_level_every: 25
+
+  # ---- V2.2: Reduced Smoothness in Phase 2 ----
+  # MIST pseudo-labels force sharp temporal score peaks (top-3 positions).
+  # The Phase 1 smoothness penalty (8e-5) was actively penalising this
+  # localisation signal. Phase 2 overrides to 1e-5.
+  lambda_smooth_phase2: 1.0e-5
+
+  # ---- Gradient Clipping (V2.1 fix) ----
+  gradient_clip_max_norm: 1.0
 
 # --- Evaluation ---
 evaluation:
-  # Path to save evaluation results (anomaly score curves, AUROC)
   results_dir: "results"

@@ -1,0 +1,64 @@
+project:
+  name: "Language-Guided-VAD-V6"
+  version: "v6_prototypes"
+  description: "V6 SOTA Architecture integrating Dynamic Learnable Normal Prototypes, Cosine Annealing LR, and Class-Balanced Sampling."
+
+seed: 42
+
+data:
+  features_dir: "data/features_v31_blip2_prompt"
+  annotation_file: "data/Temporal_Anomaly_Annotation.txt"
+
+model:
+  feature_dim: 768
+  num_segments: 32
+  num_heads: 8
+  num_layers: 1
+  dropout: 0.4843
+  ff_dim: 3072
+  classifier_bottleneck_dim: 64
+  classifier_hidden_dim: 128
+  use_magnitude_branch: true
+  use_flow_in_magnitude: false
+  use_multi_scale: true
+  num_prototypes: 16
+
+loss:
+  ais_score_threshold: 0.9
+  ais_k_min: 5
+  ais_warm_start_epochs: 20
+  ais_warm_k: 8
+  lambda_magnitude: 0.001
+  margin_magnitude: 1.0
+  lambda_antagonistic: 1.0
+  lambda_smooth: 0.00008
+  lambda_prototype_cluster: 0.05
+  lambda_prototype_sep: 0.05
+  margin_prototype: 2.0
+
+training:
+  batch_size: 64
+  num_workers: 4
+  log_interval: 10
+  checkpoint_dir: "checkpoints_v6"
+  epochs: 1000
+  learning_rate: 0.000145
+  weight_decay: 0.0001
+  gradient_clip_max_norm: 1.0
+  class_balanced_sampling: true
+  
+  lr_scheduler:
+    type: "cosine_warm"
+    T_0: 50
+    T_mult: 2
+    eta_min: 1.0e-5
+
+  self_training_start_epoch: 60
+  lambda_self: 0.05
+  mist_pseudo_k: 5
+  lambda_smooth_phase2: 0.0001
+  eval_frame_level_every: 1
+
+evaluation:
+  results_dir: "results_v6"
+  checkpoint_dir: "checkpoints_v6"
