@@ -28,48 +28,81 @@ This forces the network to selectively attend to visual patterns that correlate 
 
 Evaluated on the **UCF-Crime** dataset (1,610 training videos, 283 test videos, 13 anomaly categories + normal).
 
-| Metric | Score | Notes |
-|--------|-------|-------|
-| **Video-Level AUROC** | **94.85%** | Whether any anomaly exists in the video |
-| **Frame-Level AUROC** | **77.14%** | Exact temporal localization of anomaly frames |
-| Model Parameters | 2.17M | Core cross-attention + MLP only |
-| FLOPs (inference) | 138.68M | Extremely lightweight at inference time |
-| Training Time | ~20 min / 100 epochs | On RTX 4060 (8GB VRAM) |
+| Metric                | V1 Baseline | V2.1 (Current Best) | Notes                                                  |
+| --------------------- | ----------- | ------------------- | ------------------------------------------------------ |
+| **Video-Level AUROC** | 94.85%      | **94.87%**          | Whether any anomaly exists in the video                |
+| **Frame-Level AUROC** | 77.14%      | **79.18%**          | Exact temporal localization of anomaly frames          |
+| Model Parameters      | 2.17M       | ~2.2M               | Core cross-attention + Hourglass FC + Magnitude Branch |
+| Training Time         | ~20 min     | ~30 min             | 100 epochs on RTX 4060 (8GB VRAM)                      |
 
 ### Comparison Against Baselines
 
-| Method | Supervision | AUROC (Frame-Level) |
-|--------|-------------|----------------------|
-| Sultani et al. CVPR 2018 (C3D) | Weak | 75.41% |
-| RTFM (Tian et al., ICCV 2021) | Weak | 84.30% |
-| **Ours (Language-Guided Cross-Attn)** | **Weak** | **77.14%** |
+| Method                         | Supervision | AUROC (Frame-Level) |
+| ------------------------------ | ----------- | ------------------- |
+| Sultani et al. CVPR 2018 (C3D) | Weak        | 75.41%              |
+| **Ours (V1 Baseline)**         | **Weak**    | **77.14%**          |
+| **Ours (V2.1 - Current Best)** | **Weak**    | **79.18%**          |
+| MIST (2021)                    | Weak        | 82.30%              |
+| RTFM (Tian et al., ICCV 2021)  | Weak        | 84.30%              |
 
-> Our model outperforms the seminal CVPR 2018 baseline and does so using a highly compact 2.17M-parameter architecture, compared to C3D-based approaches which typically exceed 30M parameters.
+> Our V2.1 model incorporates a feature magnitude branch, Adaptive Instance Selection (AIS), and antagonistic loss, pushing the frame-level AUROC to **79.18%**, significantly outperforming the seminal CVPR 2018 baseline.
+
+---
+
+## 🚀 Development Journey (V1 to V12)
+
+This project has systematically evolved through 12 rigorous architectural iterations to address the "Lazy Localisation" problem and temporal aliasing in Weakly Supervised VAD. Here is the detailed progression from the baseline to our highest-performing model.
+
+### Phase 1: Establishing the Baseline (V1 to V2.2)
+*   **V1 Baseline:** Implemented Language-Guided Cross-Attention (1-layer) + Flat MLP + Top-K MIL ranking. Proved the core hypothesis by achieving **77.14%** Frame-AUROC, beating the CVPR 2018 baseline (75.41%).
+*   **V2:** Introduced a Feature Magnitude Branch, Hourglass FC classifier, Adaptive Instance Selection (AIS), and Antagonistic Loss. Showed a regression (**74.78%**) due to multiplicative fusion saturating gradients and AIS K=1 cold-starts.
+*   **V2.1 & V2.2:** Fixed V2 bugs via additive fusion, z-score normalization, AIS warm-starts, and top-3 MIST pseudo-labels. Performance improved to **79.18%**.
+
+### Phase 2: Feature Extraction Upgrades (V3 to V3.1)
+*   **V3 (Florence-2):** Migrated from BLIP-2 to Florence-2 for dense spatial grounding, using CLIP ViT-L/14 (768-dim) and 5-frame averaging. Frame-AUROC: **76.11%**.
+*   **V3.1 (BLIP-2 Anomaly Prompt):** Applied an anomaly-seeking VQA prompt ("Question: What is happening in this image? Answer:") to BLIP-2, proving that targeted prompts out-perform generic spatial captioning. Frame-AUROC: **77.95%**.
+
+### Phase 3: Architectural Complexity & Multi-Scale Modelling (V4 to V7)
+*   **V4 SOTA:** Added Multi-Scale Temporal Attention (T=32, 16, 8), Feature Contrastive Loss, and a Global Normal Memory Bank. Achieved **0.7824** Frame-AUROC (later re-evaluated to **0.8180** under the corrected protocol).
+*   **V5:** Tuned via Cosine Annealing, Class-Balanced Sampling, and K=5 AIS. Excellent Video-AUROC (0.9329) but demonstrated the MIST temporal trade-off where frame boundaries decay (Frame-AUROC: **0.8042**).
+*   **V6:** Replaced the global memory bank with 16 Dynamic Normal Prototypes. Geometric constraints were too rigid, amplifying the "Siren Effect" (Frame-AUROC: **0.7771**).
+*   **V7:** Introduced a Temporal Pyramid of Dilated Convolutions (PDC) to inject chronological velocity-awareness into static ViT frames (Frame-AUROC: **0.7931**).
+
+### Phase 4: Resolution Scaling & Protocol Correction (V9 to V12)
+*   **V9 & V10 (T=64):** Attempted T=64 segment resolution with Florence-2. Led to a forensic audit revealing ground truth evaluation corruption. Fixed severe evaluation bugs (normal video frame count deflation) which established the true SOTA-comparable protocol (11.4% anomaly ratio). V10 introduced Snippet Contrastive Learning (SCL) and Adaptive Smoothness Decay.
+*   **V11:** Re-evaluated V5 + SCL + Smoothness Decay using the corrected protocol. Frame-AUROC: **0.8179**. (A score-level ensemble of V4 + V11 yielded **0.8197**).
+*   **V12 (High-Resolution T=128):** Quadrupled temporal resolution from T=32 to T=128 to capture fine-grained boundaries. Achieved the project's highest single-model Frame-AUROC of **82.06%**.
+
+### The SENTINEL Extensions (Verification Experiments)
+We verified that raw semantic spaces of CLIP and sequential temporal dynamics cannot replace explicit cross-modal training:
+- **Zero-Shot CLIP Danger Score:** Chance-level performance (~0.49 AUROC) proved raw CLIP embeddings suffer from a massive domain gap on surveillance footage; CCTV frames do not cluster with internet-derived "danger" concepts without explicit fine-tuning.
+- **Temporal Prediction Error (LSTM):** Random performance (~0.50) proved that T=32 is too coarse a temporal resolution for continuous motion modeling, definitively justifying the move to T=128.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-Phase 1 — Offline Extraction (run once):
+Phase 1 — Offline Extraction:
   PNG Frames ──► CLIP ViT-B/16 ──► Visual Features [32, 512] ──► .pt file
   PNG Frames ──► BLIP-2 OPT-2.7B ──► Captions ──► CLIP Text Encoder ──► Text Features [32, 512] ──► .pt file
 
-Phase 2 — Online Training:
+Phase 2 — Online Training (V2.1 Architecture):
   Visual [B, 32, 512] ──► Cross-Attention (Q=Text, K=V=Visual) ──► Guided Features [B, 32, 512]
-  Guided Features ──► MLP Head ──► Anomaly Scores [B, 32] ∈ [0,1]
-  Anomaly Scores ──► MIL Ranking Loss (Top-K=8) + Smoothness + Sparsity
+  Guided Features ──► Hourglass FC (512→64→128→1) ──► Semantic Score
+  Visual Norms ──► Z-Score Norm ──► Magnitude Branch ──► Magnitude Score
+  Final Score = sigmoid(Semantic Score + α * Magnitude Score)
 ```
 
-### Key Design Decisions
+### Key Design Decisions (V2.1)
 
-| Decision | Rationale |
-|----------|-----------|
-| **Offline feature extraction** | Prevents GPU OOM during MIL training; enables fast dataloading |
-| **CLIP joint embedding space** | Both visual and text features live in the same 512-D space, making cross-attention mathematically meaningful |
-| **Query = Text, Key/Value = Visual** | Text asks "what should I look for?"; visual answers "where is it?" |
-| **Top-K MIL (K=8, T=32)** | Selects top 25% of segments to avoid training on border-frames |
-| **Sparsity + Smoothness regularisation** | Prevents model from predicting uniform high anomaly scores everywhere |
+| Decision                               | Rationale                                                                               |
+| -------------------------------------- | --------------------------------------------------------------------------------------- |
+| **Language-Guided Cross-Attention**    | Text queries semantic concepts; visual keys answer "where is it?"                       |
+| **Hourglass FC Classifier**            | Parameter efficiency and regularisation via bottleneck compression (512→64→128→1)       |
+| **Magnitude Branch (Additive Fusion)** | Uses raw visual L2-norm to provide feature magnitude signal alongside semantic guidance |
+| **Adaptive Instance Selection (AIS)**  | Dynamically scales K based on model confidence, replacing fixed Top-K selection         |
+| **MIST Self-Training**                 | Bootstraps from bag-level to instance-level pseudo-labels later in training             |
 
 ---
 
@@ -202,30 +235,49 @@ python scripts/compute_flops.py
 ```
 Language-Guided-VAD/
 ├── configs/
-│   └── config.yaml                 # All hyperparameters (NO hardcoding in scripts)
+│   ├── config.yaml                 # Core hyperparameters
+│   └── config_v*.yaml              # Version-specific experimental configurations (v3 to v12)
 ├── data/
 │   ├── Temporal_Anomaly_Annotation.txt  # UCF-Crime frame-level GT (not in git)
-│   ├── raw/                        # UCF-Crime PNG frames   (not in git — too large)
-│   └── features/                   # Pre-extracted .pt tensors (not in git — too large)
+│   ├── video_frame_counts.json     # Generated original video lengths
+│   ├── raw/                        # UCF-Crime PNG frames (not in git)
+│   └── features_*/                 # Extracted feature tensors (not in git)
 ├── models/
 │   ├── __init__.py
-│   ├── vad_architecture.py         # CrossAttentionBlock + LanguageGuidedVAD
-│   ├── visual_encoder.py           # CLIP ViT-B/16 wrapper
-│   └── text_encoder.py             # BLIP-2 captioner + CLIP text encoder
+│   ├── vad_architecture.py         # CrossAttentionBlock, MSCA, NormalPrototypes + LanguageGuidedVAD
+│   ├── visual_encoder.py           # CLIP ViT wrappers
+│   └── text_encoder.py             # BLIP-2 & Florence-2 captioner + CLIP text encoder
 ├── scripts/
-│   ├── 01_extract_features.py      # Offline CLIP + BLIP-2 extraction w/ --resume
+│   ├── 01_extract_features.py      # Offline CLIP + BLIP-2/Florence-2 extraction
 │   ├── 02_train.py                 # MIL training loop + AUROC evaluation
 │   ├── 03_evaluate.py              # Inference + frame-level AUROC
-│   └── compute_flops.py            # FLOPs/MACs/Params analysis
+│   ├── 04_hpo.py                   # Optuna Hyperparameter Optimization
+│   ├── 05_semantic_ensemble.py     # Sentinel extension: CLIP Danger score ensemble
+│   ├── 06_temporal_pred_error.py   # Sentinel extension: LSTM prediction error
+│   ├── 07_full_eval.py             # SOTA-comparable evaluation suite
+│   ├── 08_postproc_eval.py         # Smoothing & boundary refinement evaluation
+│   ├── 09_plot_results.py          # Generates ROC/PR plots for IEEE thesis
+│   ├── build_gt.py                 # Ground truth frame count corrector
+│   ├── check_gt.py                 # Ground truth data validator
+│   ├── compute_flops.py            # FLOPs/MACs/Params analysis
+│   ├── extract_v12_features.py     # High-resolution T=128 feature extractor
+│   ├── show_captions.py            # Diagnostic caption viewing
+│   ├── show_captions_v31.py        # Diagnostic anomaly-prompt caption viewing
+│   ├── test_all_prompts.py         # Testing CLIP zero-shot prompts
+│   ├── test_blip_prompt.py         # Testing BLIP-2 Q&A
+│   ├── test_florence2_prompt.py    # Testing Florence-2 detailed captions
+│   └── v12_ensemble_eval.py        # Ensemble evaluator for V12 metrics
 ├── utils/
 │   ├── __init__.py
 │   ├── dataset.py                  # VADDataset — loads .pt feature tensors
-│   ├── losses.py                   # Top-K MIL Ranking Loss
-│   ├── metrics.py                  # AUROC + score interpolation
-│   └── video_utils.py              # Config loading, seeding, T=32 frame sampling
-├── results/
-│   └── video_scores.npy            # Per-video anomaly score curves (post-evaluation)
-├── research papers/                # Reference literature (17 papers)
+│   ├── flow_utils.py               # Optical flow & PDC helpers
+│   ├── frame_eval.py               # Standalone frame-level AUROC evaluator
+│   ├── losses.py                   # Multi-objective VADLoss (SCL, MIST, AIS, Magnitude)
+│   ├── metrics.py                  # Score interpolation
+│   └── video_utils.py              # Config loading, seeding, T=32/64/128 frame sampling
+├── checkpoints/                    # Auto-saved PyTorch models (.pth)
+├── results/                        # Generated charts, logs, and score arrays
+├── docs/                           # Associated thesis documentation
 ├── THESIS_LOG.md                   # Full academic development log
 ├── requirements.txt
 └── README.md
@@ -233,22 +285,19 @@ Language-Guided-VAD/
 
 ---
 
-## 📊 Loss Function
+## 📊 Loss Function (V2.1)
 
-$$\mathcal{L}_{total} = \mathcal{L}_{rank} + \lambda_{smooth}\,\mathcal{L}_{smooth} + \lambda_{sparse}\,\mathcal{L}_{sparse}$$
+The V2.1 `VADLoss` replaces the standard MIL Ranking Loss with a multi-objective function:
 
-Where:
-$$\mathcal{L}_{rank} = \frac{1}{K}\sum_{k=1}^{K}\max\!\left(0,\ \text{margin} - \left(s_{abn}^{(k)} - s_{nor}^{(k)}\right)\right)$$
+$$\mathcal{L}_{total} = \mathcal{L}_{AIS} + \lambda_{ant}\mathcal{L}_{ant} + \lambda_{mag}\mathcal{L}_{mag} + \lambda_{smooth}\mathcal{L}_{smooth} + \lambda_{self}\mathcal{L}_{self}\cdot\mathbb{1}[\text{epoch}\ge50]$$
 
-| Hyperparameter | Value |
-|---|---|
-| Top-K | 8 |
-| Margin | 1.0 |
-| λ_smooth | 8×10⁻⁵ |
-| λ_sparse | 8×10⁻⁵ |
-| Learning Rate | 1×10⁻⁴ (AdamW) |
-| LR Schedule | StepLR (step=50, γ=0.1) |
-| Epochs | 100 |
+| Component                             | Purpose                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Adaptive Instance Selection (AIS)** | Replaces fixed Top-K MIL ranking loss.                                               |
+| **Antagonistic Loss**                 | Surgically penalises the top-1 normal segment while rewarding top-1 anomaly segment. |
+| **Magnitude Ranking Loss**            | Enforces inter-bag separation based on visual feature L2-norms.                      |
+| **Temporal Smoothness**               | Penalises abrupt score changes between consecutive segments.                         |
+| **Self-Training (MIST)**              | BCE loss using high-confidence pseudo-labels (active from epoch 50).                 |
 
 ---
 

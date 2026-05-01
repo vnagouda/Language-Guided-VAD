@@ -1,0 +1,90 @@
+# =============================================================================
+# V9 Configuration — T=64 Re-Extraction with Florence-2 + CLIP ViT-L/14
+# =============================================================================
+# Features:    data/features_v9_florence2_T64/
+# Checkpoints: checkpoints_v9/
+# Results:     results_v9/
+#
+# V9 over V7:
+#   - num_segments: 64          (Doubles temporal precision to SOTA standard)
+#   - captioner: florence2      (Spatially-grounded background descriptions)
+#   - florence2_task: <MORE_DETAILED_CAPTION>  (Dense spatial scene description)
+#   - VAD Architecture: Inherits ALL V7 upgrades (Prototypes, PDC, MIST, AIS)
+# =============================================================================
+
+seed: 42
+
+data:
+  raw_dir: "data/raw"
+  features_dir: "data/features_v9_florence2_T64"
+  annotation_file: "data/Temporal_Anomaly_Annotation.txt"
+  frame_extensions:
+    - ".png"
+    - ".jpg"
+
+extraction:
+  num_segments: 64
+  frames_per_segment: 5
+  clip_model_name: "openai/clip-vit-large-patch14"
+  captioner: "florence2"
+  florence2_model_name: "microsoft/florence-2-large"
+  florence2_task: "<MORE_DETAILED_CAPTION>"
+  
+  use_patch_tokens: true
+  extract_flow: true
+  image_size: 224
+  extraction_batch_size: 4
+
+model:
+  feature_dim: 768
+  num_segments: 64
+  num_heads: 8
+  num_layers: 1
+  dropout: 0.4843
+  ff_dim: 3072
+  classifier_bottleneck_dim: 64
+  classifier_hidden_dim: 128
+  
+  # Inherit V7 Architectural Peak
+  use_multi_scale: true     
+  use_temporal_convolutions: true  
+
+  # V6/V7 Hybrid Dynamic Prototypes
+  num_normal_prototypes: 16
+  prototype_momentum: 0.99 
+
+loss:
+  # AIS parameters
+  ais_score_threshold: 0.9
+  ais_k_min: 3
+  ais_warm_start_epochs: 20
+  ais_warm_k: 8
+
+  # Magnitude branch
+  margin_mag: 60.0
+  lambda_mag: 0.005
+
+  # Smoothness / Sparsity (Antagonistic)
+  lambda_smooth: 0.1
+  lambda_sparsity: 0.1
+  
+  # Dynamic Prototype Contrastive constraints
+  margin_contrastive: 10.0
+  lambda_contrastive: 0.5 
+
+training:
+  batch_size: 32
+  num_workers: 4
+  epochs: 1000
+  learning_rate: 0.0001
+  weight_decay: 0.05
+  scheduler_t0: 50
+  scheduler_tmult: 2
+
+  mist:
+    start_epoch: 60
+    pseudo_k: 12        # MIST uses Top-K pseudo masks for self-learning
+    lambda_self: 0.5    
+
+optimizer:
+  betas: [0.9, 0.999]

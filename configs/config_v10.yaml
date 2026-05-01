@@ -1,0 +1,107 @@
+# =============================================================================
+# V10 APEX Configuration — Corrected Evaluation + SCL + Smoothness Decay
+# =============================================================================
+# Features:    data/features_v9_florence2_T64/   (reuses V9 features)
+# Checkpoints: checkpoints_v10/
+# Results:     results_v10/
+#
+# V10 APEX over V9:
+#   - CRITICAL: Frame-level eval now uses ACTUAL video frame counts
+#   - CRITICAL: All loss config keys properly aliased (no silent defaults)
+#   - NEW: Snippet Contrastive Learning (novel thesis contribution)
+#   - NEW: Adaptive Smoothness Decay (post-MIST exponential reduction)
+#   - Magnitude margin recalibrated for post-PDC feature norms
+#   - Smoothness lambda reduced 10x to stop fighting MIST
+#   - Training epochs reduced to 300 (V9 converged by ~200)
+# =============================================================================
+
+seed: 42
+
+data:
+  raw_dir: "data/raw"
+  features_dir: "data/features_v9_florence2_T64"
+  annotation_file: "data/Temporal_Anomaly_Annotation.txt"
+  frame_extensions:
+    - ".png"
+    - ".jpg"
+
+extraction:
+  num_segments: 64
+  frames_per_segment: 5
+  clip_model_name: "openai/clip-vit-large-patch14"
+  captioner: "florence2"
+  florence2_model_name: "microsoft/florence-2-large"
+  florence2_task: "<MORE_DETAILED_CAPTION>"
+  use_patch_tokens: true
+  extract_flow: true
+  image_size: 224
+  extraction_batch_size: 4
+
+model:
+  feature_dim: 768
+  num_segments: 64
+  num_heads: 8
+  num_layers: 1
+  dropout: 0.4843
+  ff_dim: 3072
+  classifier_bottleneck_dim: 64
+  classifier_hidden_dim: 128
+
+  # V7 Architectural Peak
+  use_multi_scale: true
+  use_temporal_convolutions: true
+
+  # V6/V7 Dynamic Prototypes (canonical key name)
+  num_prototypes: 16
+  num_normal_prototypes: 16    # Alias for backward compat
+  prototype_momentum: 0.99
+
+loss:
+  # AIS parameters
+  ais_score_threshold: 0.9
+  ais_k_min: 3
+  ais_warm_start_epochs: 20
+  ais_warm_k: 8
+
+  # Magnitude branch (CANONICAL key names matching from_config)
+  lambda_magnitude: 0.01        # 10x boost over V9 default (was 0.001)
+  margin_magnitude: 5.0         # Calibrated for post-PDC norm distribution
+
+  # Antagonistic loss
+  lambda_antagonistic: 1.0
+
+  # Temporal smoothness — REDUCED to stop fighting MIST
+  lambda_smooth: 0.01           # 10x reduction vs V9 (was 0.1)
+  smooth_decay_rate: 0.95       # V10 APEX: exponential decay after MIST start
+
+  # Dynamic Prototype Contrastive (CANONICAL key names)
+  lambda_prototype_cluster: 0.1
+  lambda_prototype_sep: 0.1
+  margin_prototype: 5.0
+
+  # V10 APEX: Snippet Contrastive Learning (NOVEL)
+  lambda_snippet_contrastive: 0.1
+  snippet_margin: 2.0
+
+training:
+  batch_size: 32
+  num_workers: 4
+  epochs: 300                    # Reduced from 1000 (V9 converged by ~200)
+  learning_rate: 0.0001
+  weight_decay: 0.05
+  scheduler_t0: 50
+  scheduler_tmult: 2
+
+  checkpoint_dir: "checkpoints_v10"
+  results_dir: "results_v10"
+
+  mist:
+    start_epoch: 60
+    pseudo_k: 12
+    lambda_self: 0.5
+
+optimizer:
+  betas: [0.9, 0.999]
+
+evaluation:
+  results_dir: "results_v10"

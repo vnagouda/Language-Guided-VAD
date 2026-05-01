@@ -53,7 +53,25 @@ def evaluate(config_path: str, checkpoint_path: str | None) -> None:
         )
 
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
-    model.load_state_dict(ckpt["model_state_dict"])
+
+    # --- Legacy State Dict Key Remapping (V2.x → V3) ---
+    # V2.x MagnitudeBranch used self.linear (keys: magnitude_branch.linear.*)
+    # V3   MagnitudeBranch uses self.fc     (keys: magnitude_branch.fc.0.*)
+    # Remap automatically so old checkpoints load into the new architecture.
+    state_dict: dict = ckpt["model_state_dict"]
+    legacy_map = {
+        "magnitude_branch.linear.weight": "magnitude_branch.fc.0.weight",
+        "magnitude_branch.linear.bias":   "magnitude_branch.fc.0.bias",
+    }
+    remapped = 0
+    for old_key, new_key in legacy_map.items():
+        if old_key in state_dict:
+            state_dict[new_key] = state_dict.pop(old_key)
+            remapped += 1
+    if remapped:
+        print(f"[INFO] Remapped {remapped} legacy magnitude branch key(s) (V2.x → V3 compat)")
+
+    model.load_state_dict(state_dict, strict=True)
     model.eval()
     print(f"[INFO] Loaded checkpoint from: {checkpoint_path}")
     if "auroc" in ckpt:
@@ -82,17 +100,25 @@ def evaluate(config_path: str, checkpoint_path: str | None) -> None:
     with torch.no_grad():
         for idx in tqdm(range(len(test_dataset)), desc="Evaluating"):
             sample = test_dataset.samples[idx]
-            visual, text, label = test_dataset[idx]
+            item = test_dataset[idx]
 
-            visual = visual.unsqueeze(0).to(device)  # (1, 32, 512)
-            text = text.unsqueeze(0).to(device)       # (1, 32, 512)
+            # Handle both V2.x 3-tuple and V3 4-tuple dataset items
+            if len(item) == 4:
+                visual, text, flow, label = item
+            else:
+                visual, text, label = item
+                flow = torch.zeros(config["model"]["num_segments"])
 
-            scores = model(visual, text)  # (1, 32)
+            visual = visual.unsqueeze(0).to(device)  # (1, 32, D)
+            text   = text.unsqueeze(0).to(device)    # (1, 32, D)
+            flow   = flow.unsqueeze(0).to(device)    # (1, 32)
+
+            scores, _ = model(visual, text, flow)     # (1, 32)
             scores_np = scores.squeeze(0).cpu().numpy()  # (32,)
 
             video_name = sample["video_name"]
             all_video_scores[video_name] = scores_np
-            all_video_labels[video_name] = label
+            all_video_labels[video_name] = int(label)
 
     # --- Save per-video score curves ---
     scores_path = results_dir / "video_scores.npy"
