@@ -6,7 +6,7 @@
 [![Frame-AUROC](https://img.shields.io/badge/Frame--AUROC-82.06%25-brightgreen.svg)]()
 
 > **MSc Thesis Project** -- Applied Machine Learning, University of Surrey
-> **Author:** Viresh Nagouda
+> **Author:** Group18
 > **Title:** *Semantic Guidance is All You Need: Language-Driven Cross-Attention for Weakly Supervised Video Anomaly Detection*
 > **Date:** March--April 2026 | **Status:** Complete (12 architectural iterations)
 
@@ -607,7 +607,7 @@ Integrate I3D optical flow as a third modality alongside CLIP spatial and langua
 @mastersthesis{nagouda2026language,
   title     = {Semantic Guidance is All You Need: Language-Driven Cross-Attention
                for Weakly Supervised Video Anomaly Detection},
-  author    = {Nagouda, Viresh},
+  author    = {Group18},
   school    = {University of Surrey},
   year      = {2026},
   type      = {MSc Thesis},
