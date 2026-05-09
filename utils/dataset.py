@@ -23,6 +23,7 @@ Backward compatibility:
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +93,8 @@ class VADDataset(Dataset):
             label_path = vis_path.parent / f"{video_name}_label.pt"
 
             if not text_path.exists():
-                continue  # Skip if text features are missing
+                warnings.warn(f"Missing text features for '{video_name}', skipping.")
+                continue
 
             # Load label
             if label_path.exists():
@@ -146,15 +148,17 @@ class VADDataset(Dataset):
         else:
             flow = torch.zeros(self.num_segments, dtype=torch.float32)
 
-        # Shape assertions
-        assert visual.shape == (self.num_segments, self.feature_dim), (
-            f"Expected visual ({self.num_segments}, {self.feature_dim}), "
-            f"got {visual.shape} for {sample['video_name']}"
-        )
-        assert text.shape == (self.num_segments, self.feature_dim), (
-            f"Expected text ({self.num_segments}, {self.feature_dim}), "
-            f"got {text.shape} for {sample['video_name']}"
-        )
+        # Shape validation
+        if visual.shape != (self.num_segments, self.feature_dim):
+            raise ValueError(
+                f"Expected visual ({self.num_segments}, {self.feature_dim}), "
+                f"got {visual.shape} for {sample['video_name']}"
+            )
+        if text.shape != (self.num_segments, self.feature_dim):
+            raise ValueError(
+                f"Expected text ({self.num_segments}, {self.feature_dim}), "
+                f"got {text.shape} for {sample['video_name']}"
+            )
 
         return visual, text, flow, sample["label"]
 
@@ -178,6 +182,7 @@ def get_dataloaders(
     num_segments = config["model"]["num_segments"]
     feature_dim = config["model"]["feature_dim"]
     batch_size = config["training"]["batch_size"]
+    num_workers = config["training"].get("num_workers", 0)
 
     train_dataset = VADDataset(
         features_dir=features_dir / "Train",
@@ -194,7 +199,7 @@ def get_dataloaders(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,  # Windows compatibility
+        num_workers=num_workers,
         pin_memory=True,
         drop_last=False,
     )
@@ -202,7 +207,7 @@ def get_dataloaders(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=num_workers,
         pin_memory=True,
         drop_last=False,
     )

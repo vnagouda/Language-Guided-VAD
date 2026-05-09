@@ -208,7 +208,7 @@ def evaluate_ensemble(
 
     # Load model
     model = LanguageGuidedVAD.from_config(cfg).to(device)
-    ckpt  = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    ckpt  = torch.load(checkpoint_path, map_location=device, weights_only=True)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     print(f"[SENTINEL] Loaded: {checkpoint_path}")

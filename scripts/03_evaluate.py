@@ -16,9 +16,13 @@ import argparse
 import sys
 from pathlib import Path
 
+import warnings
+
 import numpy as np
 import torch
 from tqdm import tqdm
+
+FRAMES_PER_SEGMENT = 16  # UCF-Crime extraction default; used as fallback approximation
 
 # Add project root to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -177,14 +181,17 @@ def compute_frame_level_auroc(
     # Parse annotations
     annotations: dict[str, list[int]] = {}
     with open(annotation_path, "r", encoding="utf-8") as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
             parts = line.strip().split()
-            if len(parts) >= 5:
-                # The file might have: VideoName Class Start1 End1 Start2 End2
-                name = parts[0].replace(".mp4", "")
-                # The last 4 elements are always the start/end frames
+            if len(parts) < 5:
+                continue
+            name = parts[0].replace(".mp4", "")
+            try:
                 vals = [int(x) for x in parts[-4:]]
-                annotations[name] = vals
+            except ValueError:
+                warnings.warn(f"Skipping malformed annotation at line {lineno}: {line.strip()!r}")
+                continue
+            annotations[name] = vals
 
     for video_name, scores in video_scores.items():
         # Look up annotations (try various name formats)
@@ -197,11 +204,13 @@ def compute_frame_level_auroc(
         if ann is None:
             continue  # Skip if no annotation found
 
-        # Determine number of frames (approximate from score length)
-        # In practice, you'd want the actual frame count
         num_segments = len(scores)
-        # We'll use a default approximation
-        num_frames = num_segments * 16  # rough estimate
+        num_frames = num_segments * FRAMES_PER_SEGMENT
+        warnings.warn(
+            f"Using approximate frame count ({num_frames}) for '{video_name}'. "
+            "Provide actual frame counts for accurate AUROC.",
+            stacklevel=2,
+        )
 
         # Interpolate scores to frame level
         frame_scores = interpolate_scores(scores, num_frames)
