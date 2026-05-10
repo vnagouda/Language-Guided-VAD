@@ -1,0 +1,112 @@
+# =============================================================================
+# V12 Configuration — T=128 High Temporal Resolution + V4/V5 HPO Foundation
+# =============================================================================
+# Features:    data/features_v12_T128/  (CLIP T=128 visual + interpolated BLIP-2 text)
+# Checkpoints: checkpoints_v12/
+# Results:     results_v12/
+#
+# Strategy:
+#   - 4x finer temporal resolution (T=128 vs T=32)
+#   - Same CLIP ViT-L/14 visual backbone
+#   - BLIP-2 text features interpolated from T=32 → T=128
+#   - V4/V5's proven HPO hyperparameters
+#   - Multi-Scale Cross-Attention + Memory Bank (V4's winning combo)
+#   - Corrected evaluation protocol
+# =============================================================================
+
+seed: 777
+
+data:
+  raw_dir: "data/raw"
+  features_dir: "data/features_v12_T128"
+  annotation_file: "data/Temporal_Anomaly_Annotation.txt"
+  frame_extensions:
+    - ".png"
+    - ".jpg"
+
+extraction:
+  num_segments: 128
+  frames_per_segment: 5
+  clip_model_name: "openai/clip-vit-large-patch14"
+  # Source for text interpolation (T=32 BLIP-2 features)
+  source_text_features: "data/features_v31_blip2_prompt"
+  use_patch_tokens: true
+  extract_flow: true
+  image_size: 224
+
+model:
+  feature_dim: 768
+  num_segments: 128
+  num_heads: 8
+  num_layers: 1
+  dropout: 0.4843                 # V5 HPO optimal
+  ff_dim: 3072
+  classifier_bottleneck_dim: 64
+  classifier_hidden_dim: 128
+  use_magnitude_branch: true
+  use_flow_in_magnitude: false
+  use_multi_scale: true           # V4: proven multi-scale cross-attention
+  use_temporal_convolutions: false # PDC disabled (hurt performance)
+  memory_bank_size: 256           # V4: FIFO normal feature bank
+  num_prototypes: 16              # Initialized but disabled via lambda=0
+
+loss:
+  # AIS parameters — V5 HPO optimal
+  ais_score_threshold: 0.9
+  ais_k_min: 20                   # 5 × 4 (T=128/32) — maintain ~15% segment coverage
+  ais_warm_start_epochs: 20
+  ais_warm_k: 48                  # 12 × 4 — maintain ~37% warm coverage
+
+  # Magnitude branch — V5 HPO optimal
+  lambda_magnitude: 0.01918
+  margin_magnitude: 1.0
+
+  # Antagonistic loss — V5 HPO optimal
+  lambda_antagonistic: 2.5755
+
+  # Temporal smoothness — V5 HPO optimal
+  lambda_smooth: 1.093e-05
+
+  # Prototype losses DISABLED
+  lambda_prototype_cluster: 0.0
+  lambda_prototype_sep: 0.0
+  margin_prototype: 2.0
+
+  # Feature Contrastive + Memory Bank (V4's winning combo)
+  lambda_contrastive: 0.08
+  margin_contrastive: 2.0
+  lambda_bank: 0.04
+  margin_bank: 2.0
+
+  # SCL disabled for V12 baseline (didn't help at T=32)
+  lambda_snippet_contrastive: 0.0
+  snippet_margin: 2.0
+
+training:
+  batch_size: 256                 # 4x larger per-sample tensors at T=128
+  num_workers: 4
+  epochs: 500
+  learning_rate: 0.00014460       # V5 HPO optimal
+  weight_decay: 0.0008827         # V5 HPO optimal
+
+  lr_scheduler:
+    type: "cosine_warm"
+    T_0: 50
+    T_mult: 2
+    eta_min: 1.0e-6
+
+  class_balanced_sampling: true
+
+  gradient_clip_max_norm: 5.0
+  checkpoint_dir: "checkpoints_v12_s777"
+
+  # MIST config — V5 values
+  self_training_start_epoch: 60
+  lambda_self: 0.05
+  mist_pseudo_k: 12               # 3 × 4 — maintain ~9% pseudo-label coverage
+  log_interval: 10
+  eval_frame_level_every: 1
+  lambda_smooth_phase2: 1.0e-05
+
+evaluation:
+  results_dir: "results_v12_s777"

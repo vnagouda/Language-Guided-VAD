@@ -33,6 +33,12 @@ data/raw/
 # Pre-extracted .pt feature tensors (several GB)
 data/features/
 
+# I3D / pre-computed numpy features (large binary)
+data/Test/
+data/Train/
+data/___All_Errors.txt
+*.npy
+
 # Video files
 *.mp4
 *.avi
@@ -80,3 +86,6 @@ build/
 .agents/
 AGENT_INSTRUCTIONS.md
 rules.md
+
+# Temp scratch files
+_check.py
