@@ -1,0 +1,107 @@
+# =============================================================================
+# V18 Configuration — Focal Loss Fine-Tuning from V12_s777
+# =============================================================================
+# Stage 2 fine-tuning: Load V12_s777 best checkpoint (0.8294), refine with
+# Focal MIL Loss to focus gradient on hard boundary segments.
+#
+# Key changes vs V12:
+#   - Focal Loss (γ=2) replaces standard AIS-BCE
+#   - Magnitude emphasis 5x stronger (0.1 vs 0.019)
+#   - Very low LR (5e-6) — gentle refinement, don't destroy learned weights
+#   - Short training (100 epochs) with gentle cosine decay
+#   - No MIST (proven harmful)
+#   - Loads from V12_s777 checkpoint
+# =============================================================================
+
+seed: 777
+
+data:
+  raw_dir: "data/raw"
+  features_dir: "data/features_v12_T128"
+  annotation_file: "data/Temporal_Anomaly_Annotation.txt"
+  frame_extensions:
+    - ".png"
+    - ".jpg"
+
+extraction:
+  num_segments: 128
+  frames_per_segment: 5
+  clip_model_name: "openai/clip-vit-large-patch14"
+  source_text_features: "data/features_v31_blip2_prompt"
+  use_patch_tokens: true
+  extract_flow: true
+  image_size: 224
+
+model:
+  feature_dim: 768
+  num_segments: 128
+  num_heads: 8
+  num_layers: 1
+  dropout: 0.4843
+  ff_dim: 3072
+  classifier_bottleneck_dim: 64
+  classifier_hidden_dim: 128
+  use_magnitude_branch: true
+  use_flow_in_magnitude: false
+  use_multi_scale: true
+  use_temporal_convolutions: false
+  memory_bank_size: 256
+  num_prototypes: 16
+
+loss:
+  # Focal Loss config
+  use_focal_loss: true
+  focal_gamma: 2.0                  # Focus on hard segments
+
+  ais_score_threshold: 0.9
+  ais_k_min: 20
+  ais_warm_start_epochs: 5          # Short warm-start (fine-tuning)
+  ais_warm_k: 48
+
+  lambda_magnitude: 0.10            # 5x stronger than V12's 0.019
+  margin_magnitude: 1.0
+
+  lambda_antagonistic: 2.5755
+  lambda_smooth: 1.093e-05
+
+  lambda_prototype_cluster: 0.0
+  lambda_prototype_sep: 0.0
+  margin_prototype: 2.0
+
+  lambda_contrastive: 0.0
+  margin_contrastive: 2.0
+  lambda_bank: 0.0
+  margin_bank: 2.0
+
+  lambda_snippet_contrastive: 0.0
+  snippet_margin: 2.0
+
+training:
+  batch_size: 256
+  num_workers: 4
+  epochs: 100                       # Short fine-tuning
+  learning_rate: 5.0e-06            # Very low LR — gentle refinement
+  weight_decay: 0.0008827
+
+  lr_scheduler:
+    type: "cosine_warm"
+    T_0: 25                         # 4 restarts in 100 epochs
+    T_mult: 2
+    eta_min: 1.0e-7
+
+  class_balanced_sampling: true
+  gradient_clip_max_norm: 1.0       # Tighter clipping for fine-tuning
+
+  checkpoint_dir: "checkpoints_v18"
+  resume_from: "checkpoints_v12_s777/best_model_framelevel.pth"
+
+  # MIST DISABLED
+  self_training_start_epoch: 9999
+  lambda_self: 0.05
+  mist_pseudo_k: 12
+  log_interval: 10
+  eval_frame_level_every: 1
+  lambda_smooth_phase2: 1.0e-05
+
+evaluation:
+  results_dir: "results_v18"

@@ -764,3 +764,203 @@ class MILRankingLoss(nn.Module):
             lambda_smooth=loss_cfg.get("lambda_smooth", 8.0e-5),
             lambda_sparse=loss_cfg.get("lambda_sparse", 8.0e-5),
         )
+
+
+# ---------------------------------------------------------------------------
+# V18: Focal MIL Ranking Loss — focuses gradient on hard boundary segments
+# ---------------------------------------------------------------------------
+
+class FocalMILLoss(nn.Module):
+    """Focal-weighted MIL ranking loss for boundary refinement.
+
+    Applies focal weighting (Lin et al., ICCV 2017) to the AIS-BCE loss,
+    down-weighting easy segments (high-confidence predictions) and
+    concentrating gradient on hard boundary segments where the model is
+    uncertain. This is designed for Stage-2 fine-tuning from a pre-trained
+    checkpoint.
+
+    Mathematical formulation:
+        For anomalous top-K segments:
+            L_pos = -(1/K) Σ (1 - p_k)^γ · log(p_k)
+        For normal top-K segments:
+            L_neg = -(1/K) Σ (p_k)^γ · log(1 - p_k)
+
+    When γ=0, this reduces to standard BCE. When γ=2, easy examples
+    (p_k >> 0.5 for anomalous, p_k << 0.5 for normal) get ~0 gradient,
+    while hard boundary segments (p_k ≈ 0.5) get full gradient.
+
+    Args:
+        gamma: Focal focusing parameter (default 2.0).
+        ais_k_min: Minimum K for AIS (default 20 for T=128).
+        ais_warm_k: Warm-start K (default 48 for T=128).
+        ais_warm_start_epochs: Warm-start epochs (default 5 for fine-tuning).
+        ais_score_threshold: AIS threshold (default 0.9).
+        lambda_magnitude: Magnitude loss weight (default 0.1, aggressive).
+        margin_magnitude: Magnitude hinge margin (default 1.0).
+        lambda_antagonistic: Antagonistic loss weight.
+        lambda_smooth: Smoothness penalty weight.
+    """
+
+    def __init__(
+        self,
+        gamma: float = 2.0,
+        ais_k_min: int = 20,
+        ais_warm_k: int = 48,
+        ais_warm_start_epochs: int = 5,
+        ais_score_threshold: float = 0.9,
+        lambda_magnitude: float = 0.1,
+        margin_magnitude: float = 1.0,
+        lambda_antagonistic: float = 2.5755,
+        lambda_smooth: float = 1.093e-5,
+    ) -> None:
+        super().__init__()
+        self.gamma = gamma
+        self.ais_k_min = ais_k_min
+        self.ais_warm_k = ais_warm_k
+        self.ais_warm_start_epochs = ais_warm_start_epochs
+        self.ais_score_threshold = ais_score_threshold
+        self.lambda_magnitude = lambda_magnitude
+        self.margin_magnitude = margin_magnitude
+        self.lambda_antagonistic = lambda_antagonistic
+        self.lambda_smooth = lambda_smooth
+
+    def _focal_bce(
+        self,
+        scores_abn: torch.Tensor,
+        scores_nor: torch.Tensor,
+        epoch: int = 0,
+    ) -> tuple[torch.Tensor, int]:
+        """Focal-weighted AIS-BCE ranking loss.
+
+        Args:
+            scores_abn: Anomaly scores ``(B_abn, T)``.
+            scores_nor: Normal scores ``(B_nor, T)``.
+            epoch: Current training epoch.
+
+        Returns:
+            tuple[torch.Tensor, int]: (focal_loss, K_used).
+        """
+        k = _compute_ais_k(
+            scores_abn, scores_nor,
+            threshold=self.ais_score_threshold,
+            k_min=self.ais_k_min,
+            warm_k=self.ais_warm_k,
+            epoch=epoch,
+            warm_start_epochs=self.ais_warm_start_epochs,
+        )
+
+        topk_abn, _ = torch.topk(scores_abn, k, dim=1)
+        topk_nor, _ = torch.topk(scores_nor, k, dim=1)
+
+        eps = 1e-7
+        p_abn = topk_abn.clamp(eps, 1.0 - eps)
+        p_nor = topk_nor.clamp(eps, 1.0 - eps)
+
+        # Focal weighting for positive bag (anomalous segments → target 1)
+        # Hard examples: p_abn close to 0 → weight ≈ 1
+        # Easy examples: p_abn close to 1 → weight ≈ 0
+        focal_pos = -((1.0 - p_abn) ** self.gamma) * torch.log(p_abn)
+
+        # Focal weighting for negative bag (normal segments → target 0)
+        # Hard examples: p_nor close to 1 → weight ≈ 1
+        # Easy examples: p_nor close to 0 → weight ≈ 0
+        focal_neg = -((p_nor) ** self.gamma) * torch.log(1.0 - p_nor)
+
+        loss = focal_pos.mean() + focal_neg.mean()
+        return loss, k
+
+    def _antagonistic_loss(
+        self,
+        scores_abn: torch.Tensor,
+        scores_nor: torch.Tensor,
+    ) -> torch.Tensor:
+        """Antagonistic loss — same as VADLoss."""
+        top1_nor = scores_nor.max(dim=1).values.mean()
+        top1_abn = scores_abn.max(dim=1).values.mean()
+        return top1_nor + (1.0 - top1_abn)
+
+    def _magnitude_ranking_loss(
+        self,
+        norms_abn: torch.Tensor,
+        norms_nor: torch.Tensor,
+        k: int,
+    ) -> torch.Tensor:
+        """Magnitude hinge loss — same as VADLoss but with higher λ."""
+        k_c = max(1, min(k, norms_abn.size(1)))
+        topk_abn, _ = torch.topk(norms_abn, k_c, dim=1)
+        topk_nor, _ = torch.topk(norms_nor, k_c, dim=1)
+        return torch.clamp(
+            self.margin_magnitude - (topk_abn.mean() - topk_nor.mean()),
+            min=0.0,
+        )
+
+    def _temporal_smoothness(self, scores: torch.Tensor) -> torch.Tensor:
+        """Temporal smoothness penalty."""
+        diff = scores[:, 1:] - scores[:, :-1]
+        return (diff ** 2).mean()
+
+    def forward(
+        self,
+        scores_abn: torch.Tensor,
+        scores_nor: torch.Tensor,
+        norms_abn: torch.Tensor,
+        norms_nor: torch.Tensor,
+        epoch: int = 0,
+        **kwargs,
+    ) -> dict[str, torch.Tensor]:
+        """Compute focal MIL loss.
+
+        Args:
+            scores_abn: Anomaly scores ``(B_abn, T)``.
+            scores_nor: Normal scores ``(B_nor, T)``.
+            norms_abn: Visual L2-norms ``(B_abn, T)``.
+            norms_nor: Visual L2-norms ``(B_nor, T)``.
+            epoch: Current training epoch.
+
+        Returns:
+            dict: Loss components including ``total_loss``.
+        """
+        focal_loss, k = self._focal_bce(scores_abn, scores_nor, epoch)
+        ant_loss = self._antagonistic_loss(scores_abn, scores_nor)
+        mag_loss = self._magnitude_ranking_loss(norms_abn, norms_nor, k)
+        smooth_loss = self._temporal_smoothness(
+            torch.cat([scores_abn, scores_nor], dim=0)
+        )
+
+        total = (
+            focal_loss
+            + self.lambda_antagonistic * ant_loss
+            + self.lambda_magnitude * mag_loss
+            + self.lambda_smooth * smooth_loss
+        )
+
+        return {
+            "total_loss": total,
+            "ais_loss": focal_loss,
+            "antagonistic_loss": ant_loss,
+            "magnitude_loss": mag_loss,
+            "smoothness_loss": smooth_loss,
+        }
+
+    @classmethod
+    def from_config(cls, config: dict) -> "FocalMILLoss":
+        """Construct from config dict.
+
+        Args:
+            config: Full configuration dict.
+
+        Returns:
+            FocalMILLoss: Instantiated loss.
+        """
+        loss_cfg = config["loss"]
+        return cls(
+            gamma=loss_cfg.get("focal_gamma", 2.0),
+            ais_k_min=loss_cfg.get("ais_k_min", 20),
+            ais_warm_k=loss_cfg.get("ais_warm_k", 48),
+            ais_warm_start_epochs=loss_cfg.get("ais_warm_start_epochs", 5),
+            ais_score_threshold=loss_cfg.get("ais_score_threshold", 0.9),
+            lambda_magnitude=loss_cfg.get("lambda_magnitude", 0.1),
+            margin_magnitude=loss_cfg.get("margin_magnitude", 1.0),
+            lambda_antagonistic=loss_cfg.get("lambda_antagonistic", 2.5755),
+            lambda_smooth=loss_cfg.get("lambda_smooth", 1.093e-5),
+        )
