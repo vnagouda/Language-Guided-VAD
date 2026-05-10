@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -47,11 +48,15 @@ def load_annotations(annotation_file: str) -> Dict[str, List[int]]:
     """
     ann: Dict[str, List[int]] = {}
     with open(annotation_file, "r", encoding="utf-8") as fh:
-        for line in fh:
+        for lineno, line in enumerate(fh, 1):
             parts = line.strip().split()
-            if len(parts) >= 5:
-                name = parts[0].replace(".mp4", "")
+            if len(parts) < 5:
+                continue
+            name = parts[0].replace(".mp4", "")
+            try:
                 ann[name] = [int(x) for x in parts[-4:]]
+            except ValueError:
+                warnings.warn(f"Skipping malformed annotation at line {lineno}: {line.strip()!r}")
     return ann
 
 
@@ -117,13 +122,18 @@ def evaluate_postprocessing(
         checkpoint_path: Path to model checkpoint (.pth).
         t_proxy:         Proxy frames per segment (T * t_proxy).
     """
+    warnings.warn(
+        "This script sweeps post-processing parameters on the test set. "
+        "Results are optimistically biased — use a validation split for tuning.",
+        stacklevel=2,
+    )
     cfg    = load_config(config_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[POSTPROC] Device: {device}")
 
     # Load model
     model = LanguageGuidedVAD.from_config(cfg).to(device)
-    ckpt  = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    ckpt  = torch.load(checkpoint_path, map_location=device, weights_only=True)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     print(f"[POSTPROC] Loaded: {checkpoint_path}")

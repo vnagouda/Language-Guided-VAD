@@ -149,7 +149,7 @@ def train(config_path: str) -> None:
     annotation_file: str     = config["data"]["annotation_file"]
     eval_cfg                 = config.get("evaluation", {})
     results_dir: str         = eval_cfg.get("results_dir",
-                                training_cfg.get("results_dir", "results_v10"))
+                                training_cfg.get("results_dir", "results"))
 
     # --- Optimizer (V6 includes prototype cluster centers) ---
     optimizer = optim.AdamW(
@@ -192,7 +192,7 @@ def train(config_path: str) -> None:
     # --- Training Loop ---
     epochs: int        = training_cfg["epochs"]
     log_interval: int  = training_cfg.get("log_interval", 10)
-    checkpoint_dir     = Path(training_cfg.get("checkpoint_dir", "checkpoints_v9"))
+    checkpoint_dir     = Path(training_cfg.get("checkpoint_dir", "checkpoints"))
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # (Prototypes initialized above logic loop to bind to optimizer)

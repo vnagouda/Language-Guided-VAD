@@ -52,6 +52,19 @@ class BLIP2Captioner:
         ).to(self.device)
         self.model.eval()
 
+    def release(self) -> None:
+        """Move model to CPU and delete it to free GPU memory."""
+        self.model.to("cpu")
+        del self.model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def __enter__(self) -> "BLIP2Captioner":
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self.release()
+
     @torch.no_grad()
     def caption(self, images: list[Image.Image]) -> list[str]:
         """Generate captions for a list of PIL images.
@@ -100,6 +113,19 @@ class CLIPTextFeatureExtractor:
         self.model = CLIPModel.from_pretrained(model_name).to(self.device)
         self.tokenizer = CLIPTokenizer.from_pretrained(model_name)
         self.model.eval()
+
+    def release(self) -> None:
+        """Move model to CPU and delete it to free GPU memory."""
+        self.model.to("cpu")
+        del self.model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def __enter__(self) -> "CLIPTextFeatureExtractor":
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self.release()
 
     @torch.no_grad()
     def extract(self, texts: list[str]) -> torch.Tensor:

@@ -104,12 +104,13 @@ def run_trial(
     # ------------------------------------------------------------------
     # 2. Build data loaders
     # ------------------------------------------------------------------
-    set_seed(42)
+    set_seed(cfg.get("seed", 42))
     features_dir    = cfg["data"]["features_dir"]
     annotation_file = cfg["data"]["annotation_file"]
     batch_size      = cfg["training"]["batch_size"]
     num_segments    = cfg["model"]["num_segments"]
     feature_dim     = cfg["model"]["feature_dim"]
+    num_workers     = cfg["training"].get("num_workers", 0)
 
     train_ds = VADDataset(
         Path(features_dir) / "Train",
@@ -124,10 +125,10 @@ def run_trial(
 
     train_loader = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=0, pin_memory=True, drop_last=True,
+        num_workers=num_workers, pin_memory=True, drop_last=True,
     )
     test_loader = DataLoader(
-        test_ds, batch_size=1, shuffle=False, num_workers=0,
+        test_ds, batch_size=1, shuffle=False, num_workers=num_workers,
     )
 
     if len(train_ds) == 0 or len(test_ds) == 0:
