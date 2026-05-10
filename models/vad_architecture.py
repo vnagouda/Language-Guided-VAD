@@ -631,6 +631,15 @@ class LanguageGuidedVAD(nn.Module):
 
         return final_scores, visual_norms, guided
 
+    def __repr__(self) -> str:
+        attn_type = "MultiScale" if self.use_multi_scale else "SingleScale"
+        mag = "on" if self.use_magnitude_branch else "off"
+        flow = "on" if self.use_flow_in_magnitude else "off"
+        return (
+            f"LanguageGuidedVAD(dim={self.feature_dim}, T={self.num_segments}, "
+            f"attention={attn_type}, magnitude={mag}, flow={flow})"
+        )
+
     @classmethod
     def from_config(cls, config: dict) -> "LanguageGuidedVAD":
         """Construct the model from a configuration dictionary.

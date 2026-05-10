@@ -115,6 +115,16 @@ class VADDataset(Dataset):
         """Return the total number of video samples."""
         return len(self.samples)
 
+    def __repr__(self) -> str:
+        n_normal = sum(1 for s in self.samples if s["label"] == 0)
+        n_anomaly = len(self.samples) - n_normal
+        return (
+            f"VADDataset(samples={len(self.samples)}, "
+            f"normal={n_normal}, anomaly={n_anomaly}, "
+            f"segments={self.num_segments}, dim={self.feature_dim}, "
+            f"dir={self.features_dir})"
+        )
+
     def __getitem__(
         self, index: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:

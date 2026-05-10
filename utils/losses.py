@@ -507,6 +507,13 @@ class VADLoss(nn.Module):
         loss_dict["total_loss"] = total
         return loss_dict
 
+    def __repr__(self) -> str:
+        return (
+            f"VADLoss(λ_ant={self.lambda_antagonistic}, λ_mag={self.lambda_magnitude}, "
+            f"λ_smooth={self.lambda_smooth}, λ_proto_cluster={self.lambda_prototype_cluster}, "
+            f"λ_proto_sep={self.lambda_prototype_sep}, λ_scl={self.lambda_snippet_contrastive})"
+        )
+
     @classmethod
     def from_config(cls, config: dict) -> "VADLoss":
         """Construct the V10 APEX loss from a configuration dictionary.
